@@ -9,6 +9,7 @@ import {
   loginAdmin,
   recordAdminAuditLog,
 } from '../services/adminService.js';
+import { getEffectiveAdminPathStatus, setVendorAdminPath } from '../services/adminPathService.js';
 import {
   adminCreditCustomerWallet,
   adminDebitCustomerWallet,
@@ -26,12 +27,13 @@ export const adminRouter = Router();
 // Public admin bootstrap check & first-run super-admin claim (only when 0 admins exist)
 adminRouter.get('/bootstrap-status', async (_req, res, next) => {
   try {
+    const pathStatus = await getEffectiveAdminPathStatus();
     if (!isDatabaseConfigured()) {
-      res.json({ databaseConfigured: false, needsBootstrap: false });
+      res.json({ databaseConfigured: false, needsBootstrap: false, adminPathLocked: pathStatus.locked });
       return;
     }
     const status = await getAdminBootstrapStatus();
-    res.json({ databaseConfigured: true, ...status });
+    res.json({ databaseConfigured: true, ...status, adminPathLocked: pathStatus.locked });
   } catch (err) {
     next(err);
   }
@@ -45,10 +47,16 @@ adminRouter.post('/bootstrap', authRateLimiter, async (req, res, next) => {
         fullName: z.string().min(2).max(160),
         password: z.string().min(12).max(128),
         setupToken: z.string().optional(),
+        adminPath: z.string().max(255).optional(),
       })
       .parse(req.body);
     const result = await bootstrapFirstAdmin({ ...data, ipAddress: req.ip });
-    res.status(201).json(result);
+    let configuredAdminPath: string | undefined;
+    if (data.adminPath && data.adminPath.trim()) {
+      const pathRes = await setVendorAdminPath(data.adminPath, null, req.ip);
+      configuredAdminPath = pathRes.adminPath;
+    }
+    res.status(201).json({ ...result, ...(configuredAdminPath ? { configuredAdminPath } : {}) });
   } catch (err) {
     next(err);
   }
@@ -633,7 +641,22 @@ adminRouter.get('/system', requirePermission('system.read'), async (_req, res, n
     const [fees]: any = await pool.query(`SELECT * FROM transaction_fees ORDER BY id ASC`);
     const [currencies]: any = await pool.query(`SELECT * FROM currencies ORDER BY sort_order ASC`);
     const [settings]: any = await pool.query(`SELECT * FROM system_settings ORDER BY setting_key ASC`);
-    res.json({ fees, currencies, settings, providers: getAllProviderStatuses() });
+    const adminPortal = await getEffectiveAdminPathStatus();
+    res.json({ fees, currencies, settings, adminPortal, providers: getAllProviderStatuses() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.put('/system/admin-path', requirePermission('system.manage'), async (req, res, next) => {
+  try {
+    const { adminPath } = z
+      .object({
+        adminPath: z.string().min(2).max(255),
+      })
+      .parse(req.body);
+    const updated = await setVendorAdminPath(adminPath, req.admin!.id, req.ip);
+    res.json(updated);
   } catch (err) {
     next(err);
   }

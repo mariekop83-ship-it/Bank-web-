@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { getPool, withTransaction } from '../config/database.js';
 import { env } from '../config/env.js';
 import { encryptText, decryptText, generateToken, sha256Hex } from '../utils/crypto.js';
+import { allocateUniqueAccountDetails } from '../utils/bankIdentifiers.js';
 import { generateBase32Secret, buildOtpAuthUri, generateTotpQrDataUrl, verifyTotpCode } from '../utils/totp.js';
 import { createNotification, logSecurityEvent } from './notificationService.js';
 
@@ -87,16 +88,17 @@ export async function registerCustomer(
     );
 
     // Provision primary bank account record & initial multi-currency ledger wallets
-    const accountNumber = `MRD${String(100000000 + userId)}`;
-    const iban = `GB29MRDN006016${String(10000000 + userId)}`;
+    const { accountNumber, iban, routingNumber, bicSwift } = await allocateUniqueAccountDetails(conn);
     const [bankRes]: any = await conn.query(
-      `INSERT INTO bank_accounts (uuid, user_id, account_number, iban, bic_swift, account_type)
-       VALUES (?, ?, ?, ?, 'MRDNGB2L', ?)`,
+      `INSERT INTO bank_accounts (uuid, user_id, account_number, iban, bic_swift, routing_number, account_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         crypto.randomUUID(),
         userId,
         accountNumber,
         iban,
+        bicSwift,
+        routingNumber,
         input.accountTier === 'BUSINESS' ? 'BUSINESS_TREASURY' : 'PERSONAL_CHECKING',
       ]
     );

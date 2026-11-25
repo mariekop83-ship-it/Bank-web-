@@ -11,7 +11,7 @@ transfersRouter.use(requireCustomerAuth);
 
 transfersRouter.get('/resolve-account', financialRateLimiter, async (req, res, next) => {
   try {
-    const rawAccount = String(req.query.accountNumber || '').trim().toUpperCase();
+    const rawAccount = String(req.query.accountNumber || '').replace(/\s+/g, '').trim().toUpperCase();
     const requestedCurrency = String(req.query.currency || '').trim().toUpperCase();
     if (rawAccount.length < 4 || rawAccount.length > 64) {
       res.status(400).json({ found: false, error: 'Enter a valid account number or IBAN.' });

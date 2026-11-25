@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { brandConfig } from '../config/brand.js';
 import { getPool, isDatabaseConfigured } from '../config/database.js';
 import { getAllProviderStatuses, providers } from '../services/providers/registry.js';
+import { isPathMatchingAdminPortal } from '../services/adminPathService.js';
 import { generateReference } from '../utils/crypto.js';
 
 export const publicRouter = Router();
@@ -54,6 +55,16 @@ publicRouter.get('/config', async (_req, res, next) => {
       providers: getAllProviderStatuses(),
       publicSettings,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+publicRouter.get('/resolve-route', async (req, res, next) => {
+  try {
+    const candidatePath = String(req.query.path || '/');
+    const isAdminRoute = await isPathMatchingAdminPortal(candidatePath);
+    res.json({ isAdminRoute });
   } catch (err) {
     next(err);
   }

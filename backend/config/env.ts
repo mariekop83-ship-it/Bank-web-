@@ -66,12 +66,86 @@ function resolveMysqlConfig() {
   };
 }
 
+const RESERVED_PUBLIC_PATHS = new Set([
+  '/',
+  '/personal',
+  '/business',
+  '/multi-currency',
+  '/international-transfers',
+  '/cards',
+  '/security',
+  '/about',
+  '/help-center',
+  '/faq',
+  '/contact',
+  '/privacy-policy',
+  '/terms',
+  '/cookie-policy',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  '/dashboard',
+  '/api',
+  '/health',
+]);
+
+export function normalizeAdminPath(raw?: string): { path: string; valid: boolean; reason?: string } {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) {
+    return { path: '/admin', valid: true };
+  }
+
+  let candidate = trimmed;
+  if (/^https?:\/\//i.test(candidate)) {
+    try {
+      candidate = new URL(candidate).pathname;
+    } catch {
+      return { path: '/admin', valid: false, reason: 'Invalid URL format for admin portal path.' };
+    }
+  }
+
+  candidate = candidate.split('?')[0].split('#')[0].replace(/\/+/g, '/').replace(/\/+$/, '');
+  if (!candidate.startsWith('/')) {
+    candidate = `/${candidate}`;
+  }
+  if (candidate.length < 2 || !/^\/[a-zA-Z0-9/_-]+$/.test(candidate)) {
+    return {
+      path: '/admin',
+      valid: false,
+      reason: 'Admin portal path may only contain letters, numbers, hyphens, underscores, and slashes.',
+    };
+  }
+
+  const lower = candidate.toLowerCase();
+  if (
+    RESERVED_PUBLIC_PATHS.has(lower) ||
+    lower.startsWith('/api/') ||
+    lower.startsWith('/dashboard/') ||
+    lower.startsWith('/assets/')
+  ) {
+    return {
+      path: '/admin',
+      valid: false,
+      reason: `Path "${candidate}" conflicts with an existing public or customer route.`,
+    };
+  }
+
+  return { path: lower, valid: true };
+}
+
+const rawEnvAdminPath = (process.env.ADMIN_PATH || process.env.ADMIN_PORTAL_PATH || process.env.ADMIN_URL || '').trim();
+const parsedEnvAdminPath = normalizeAdminPath(rawEnvAdminPath);
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   port: Number(process.env.PORT || 3000),
   publicUrl: process.env.PUBLIC_URL || process.env.APP_URL || 'http://localhost:3000',
   trustProxy: process.env.TRUST_PROXY !== 'false',
+  adminPath: parsedEnvAdminPath.valid ? parsedEnvAdminPath.path : '/admin',
+  adminPathLockedByEnv: Boolean(rawEnvAdminPath && parsedEnvAdminPath.valid),
 
   brand: {
     name: process.env.BRAND_NAME || 'Meridian International Bank',

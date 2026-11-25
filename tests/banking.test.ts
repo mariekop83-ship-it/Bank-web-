@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import express from 'express';
 import { setCustomPoolForTesting } from '../backend/config/database.js';
+import { normalizeAdminPath } from '../backend/config/env.js';
+import { generateRealisticAccountDetails, isValidIban } from '../backend/utils/bankIdentifiers.js';
 import { applyExchangeRate, calculateFeeScaled, formatScaledToDecimal, parseDecimalToScaled } from '../backend/utils/money.js';
 import { decryptBuffer, encryptBuffer, sha256Hex, verifyHmacSignature } from '../backend/utils/crypto.js';
 import { generateTotpCode, verifyTotpCode } from '../backend/utils/totp.js';
@@ -194,6 +196,12 @@ class MockMySqlDatabase {
     }
 
     // Bank Accounts & Wallets
+    if (q.startsWith('SELECT id FROM bank_accounts WHERE account_number = ? OR iban = ?')) {
+      const found = this.bank_accounts.filter(
+        (b) => b.account_number === params[0] || b.iban === params[1]
+      );
+      return [found.slice(0, 1), []];
+    }
     if (q.startsWith('INSERT INTO bank_accounts')) {
       const id = this.nextId();
       this.bank_accounts.push({
@@ -202,6 +210,9 @@ class MockMySqlDatabase {
         user_id: params[1],
         account_number: params[2],
         iban: params[3],
+        bic_swift: params[4],
+        routing_number: params[5],
+        account_type: params[6] || 'PERSONAL_CHECKING',
         status: 'ACTIVE',
         daily_transfer_limit: '25000.0000',
       });
@@ -702,7 +713,11 @@ describe('Meridian International Bank Core Security & Financial Engine', () => {
       },
       { ip: '127.0.0.1' }
     );
-    assert.ok(reg.accountNumber.startsWith('MRD'));
+    assert.match(reg.accountNumber, /^\d{10}$/);
+    const regBankAcct = db.bank_accounts.find((b) => b.account_number === reg.accountNumber);
+    assert.ok(regBankAcct);
+    assert.ok(isValidIban(regBankAcct.iban));
+    assert.match(regBankAcct.routing_number, /^\d{2}-\d{2}-\d{2}$/);
     const storedUser = db.users.find((u) => u.email === 'ada@example.com');
     assert.ok(storedUser.password_hash.startsWith('$2'));
     assert.notEqual(storedUser.password_hash, 'StrongPassword123');
@@ -1055,6 +1070,29 @@ describe('Meridian International Bank Core Security & Financial Engine', () => {
       /Insufficient funds/
     );
     assert.equal(usdWallet.available_balance, '1000.0000');
+  });
+
+  it('generates unique valid ISO-13616 IBANs and normalizes vendor admin portal URLs', () => {
+    const generated = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const details = generateRealisticAccountDetails();
+      assert.match(details.accountNumber, /^\d{10}$/);
+      assert.equal(details.iban.length, 22);
+      assert.ok(isValidIban(details.iban));
+      assert.ok(!generated.has(details.iban), 'IBAN must not repeat across accounts');
+      generated.add(details.iban);
+    }
+
+    assert.deepEqual(normalizeAdminPath('https://mybank.com/vendor-ops/'), {
+      path: '/vendor-ops',
+      valid: true,
+    });
+    assert.deepEqual(normalizeAdminPath('staff-console'), {
+      path: '/staff-console',
+      valid: true,
+    });
+    assert.equal(normalizeAdminPath('/login').valid, false);
+    assert.equal(normalizeAdminPath('/dashboard').valid, false);
   });
 });
 

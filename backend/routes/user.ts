@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getPool, withTransaction } from '../config/database.js';
 import { requireCustomerAuth } from '../middleware/auth.js';
+import { allocateUniqueAccountDetails } from '../utils/bankIdentifiers.js';
 import { generateReference } from '../utils/crypto.js';
 
 export const userRouter = Router();
@@ -32,39 +33,112 @@ userRouter.put('/profile', async (req, res, next) => {
   try {
     const data = z
       .object({
-        phone: z.string().min(6).max(40).optional(),
-        occupation: z.string().max(150).optional(),
+        firstName: z.string().trim().min(1).max(120).optional(),
+        lastName: z.string().trim().min(1).max(120).optional(),
+        phone: z.string().trim().min(6).max(40).optional(),
+        occupation: z.string().trim().max(150).optional(),
         preferredCurrency: z.enum(['USD', 'EUR', 'GBP', 'NGN', 'CAD', 'AUD', 'CHF', 'JPY']).optional(),
-        addressLine1: z.string().min(3).max(255).optional(),
-        city: z.string().min(1).max(120).optional(),
-        postalCode: z.string().max(40).optional(),
+        addressLine1: z.string().trim().min(3).max(255).optional(),
+        addressLine2: z.string().trim().max(255).optional(),
+        city: z.string().trim().min(1).max(120).optional(),
+        stateRegion: z.string().trim().max(120).optional(),
+        postalCode: z.string().trim().max(40).optional(),
+        country: z.string().trim().length(2).optional(),
       })
       .parse(req.body);
 
-    const pool = getPool();
-    if (data.phone) {
-      await pool.query(`UPDATE users SET phone = ? WHERE id = ?`, [data.phone, req.customer!.id]);
-    }
-    if (data.occupation !== undefined || data.preferredCurrency) {
-      await pool.query(
+    const userId = req.customer!.id;
+    const updatedProfile = await withTransaction(async (conn) => {
+      const [userRows]: any = await conn.query(`SELECT kyc_status FROM users WHERE id = ? LIMIT 1`, [userId]);
+      const kycApproved = userRows[0]?.kyc_status === 'APPROVED';
+
+      if (data.phone) {
+        await conn.query(`UPDATE users SET phone = ? WHERE id = ?`, [data.phone, userId]);
+      }
+
+      const nextFirst = !kycApproved && data.firstName ? data.firstName : null;
+      const nextLast = !kycApproved && data.lastName ? data.lastName : null;
+
+      await conn.query(
         `UPDATE user_profiles
-         SET occupation = COALESCE(?, occupation),
+         SET first_name = COALESCE(?, first_name),
+             last_name = COALESCE(?, last_name),
+             occupation = COALESCE(?, occupation),
              preferred_currency = COALESCE(?, preferred_currency)
          WHERE user_id = ?`,
-        [data.occupation ?? null, data.preferredCurrency ?? null, req.customer!.id]
+        [
+          nextFirst,
+          nextLast,
+          data.occupation !== undefined ? data.occupation : null,
+          data.preferredCurrency ?? null,
+          userId,
+        ]
       );
-    }
-    if (data.addressLine1 || data.city || data.postalCode !== undefined) {
-      await pool.query(
-        `UPDATE user_addresses
-         SET address_line_1 = COALESCE(?, address_line_1),
-             city = COALESCE(?, city),
-             postal_code = COALESCE(?, postal_code)
-         WHERE user_id = ? AND is_primary = 1`,
-        [data.addressLine1 ?? null, data.city ?? null, data.postalCode ?? null, req.customer!.id]
+
+      if (
+        data.addressLine1 !== undefined ||
+        data.addressLine2 !== undefined ||
+        data.city !== undefined ||
+        data.stateRegion !== undefined ||
+        data.postalCode !== undefined ||
+        data.country !== undefined
+      ) {
+        const [addrRows]: any = await conn.query(
+          `SELECT id FROM user_addresses WHERE user_id = ? AND is_primary = 1 LIMIT 1`,
+          [userId]
+        );
+        if (addrRows.length > 0) {
+          await conn.query(
+            `UPDATE user_addresses
+             SET address_line_1 = COALESCE(?, address_line_1),
+                 address_line_2 = COALESCE(?, address_line_2),
+                 city = COALESCE(?, city),
+                 state_region = COALESCE(?, state_region),
+                 postal_code = COALESCE(?, postal_code),
+                 country = COALESCE(?, country)
+             WHERE user_id = ? AND is_primary = 1`,
+            [
+              data.addressLine1 ?? null,
+              data.addressLine2 !== undefined ? data.addressLine2 : null,
+              data.city ?? null,
+              data.stateRegion !== undefined ? data.stateRegion : null,
+              data.postalCode !== undefined ? data.postalCode : null,
+              data.country ? data.country.toUpperCase() : null,
+              userId,
+            ]
+          );
+        } else if (data.addressLine1 && data.city && data.country) {
+          await conn.query(
+            `INSERT INTO user_addresses (user_id, address_line_1, address_line_2, city, state_region, postal_code, country, is_primary)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+            [
+              userId,
+              data.addressLine1,
+              data.addressLine2 || null,
+              data.city,
+              data.stateRegion || null,
+              data.postalCode || null,
+              data.country.toUpperCase(),
+            ]
+          );
+        }
+      }
+
+      const [rows]: any = await conn.query(
+        `SELECT u.id, u.uuid, u.email, u.phone, u.status, u.kyc_status, u.two_factor_enabled,
+                u.email_verified_at, u.phone_verified_at,
+                p.first_name, p.last_name, p.date_of_birth, p.nationality, p.occupation, p.preferred_currency, p.account_tier,
+                a.address_line_1, a.address_line_2, a.city, a.state_region, a.postal_code, a.country
+         FROM users u
+         JOIN user_profiles p ON p.user_id = u.id
+         LEFT JOIN user_addresses a ON a.user_id = u.id AND a.is_primary = 1
+         WHERE u.id = ? LIMIT 1`,
+        [userId]
       );
-    }
-    res.json({ message: 'Profile updated.' });
+      return rows[0];
+    });
+
+    res.json({ message: 'Profile updated.', profile: updatedProfile });
   } catch (err) {
     next(err);
   }
@@ -172,14 +246,12 @@ userRouter.post('/bank-accounts', async (req, res, next) => {
         accountType ||
         (profRows[0]?.account_tier === 'BUSINESS' ? 'BUSINESS_TREASURY' : 'PERSONAL_CHECKING');
 
-      const randDigits = String(crypto.randomInt(200000000, 999999999));
-      const accountNumber = `MRD${randDigits}`;
-      const iban = `GB29MRDN006016${randDigits}`;
+      const { accountNumber, iban, routingNumber, bicSwift } = await allocateUniqueAccountDetails(conn);
 
       const [bankRes]: any = await conn.query(
-        `INSERT INTO bank_accounts (uuid, user_id, account_number, iban, bic_swift, account_type)
-         VALUES (?, ?, ?, ?, 'MRDNGB2L', ?)`,
-        [crypto.randomUUID(), userId, accountNumber, iban, defaultType]
+        `INSERT INTO bank_accounts (uuid, user_id, account_number, iban, bic_swift, routing_number, account_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [crypto.randomUUID(), userId, accountNumber, iban, bicSwift, routingNumber, defaultType]
       );
       const bankAccountId = Number(bankRes.insertId);
 
@@ -213,7 +285,7 @@ userRouter.post('/bank-accounts', async (req, res, next) => {
       }
 
       const [rows]: any = await conn.query(
-        `SELECT id, uuid, account_number, iban, bic_swift, account_type, status, daily_transfer_limit, created_at
+        `SELECT id, uuid, account_number, iban, bic_swift, routing_number, account_type, status, daily_transfer_limit, created_at
          FROM bank_accounts WHERE id = ? LIMIT 1`,
         [bankAccountId]
       );
@@ -239,7 +311,7 @@ userRouter.get('/dashboard', async (req, res, next) => {
     );
 
     const [bankAccounts]: any = await pool.query(
-      `SELECT id, uuid, account_number, iban, bic_swift, account_type, status, partner_provider, daily_transfer_limit
+      `SELECT id, uuid, account_number, iban, bic_swift, routing_number, account_type, status, partner_provider, daily_transfer_limit
        FROM bank_accounts WHERE user_id = ?`,
       [userId]
     );

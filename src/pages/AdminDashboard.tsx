@@ -48,7 +48,9 @@ export function AdminDashboard({
   // Auth forms
   const [loginForm, setLoginForm] = useState({ email: '', password: '', totpCode: '' });
   const [needsMfa, setNeedsMfa] = useState(false);
-  const [bootForm, setBootForm] = useState({ email: '', fullName: '', password: '', setupToken: '' });
+  const [adminPathLocked, setAdminPathLocked] = useState(false);
+  const [bootForm, setBootForm] = useState({ email: '', fullName: '', password: '', setupToken: '', adminPath: '' });
+  const [vendorPathInput, setVendorPathInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -65,7 +67,13 @@ export function AdminDashboard({
   const [selectedLedger, setSelectedLedger] = useState<{ tx: any; entries: any[] } | null>(null);
   const [deposits, setDeposits] = useState<any[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
-  const [systemData, setSystemData] = useState<{ fees: any[]; currencies: any[]; settings: any[]; providers?: any }>({
+  const [systemData, setSystemData] = useState<{
+    fees: any[];
+    currencies: any[];
+    settings: any[];
+    adminPortal?: { adminPath: string; source: string; locked: boolean };
+    providers?: any;
+  }>({
     fees: [],
     currencies: [],
     settings: [],
@@ -107,6 +115,7 @@ export function AdminDashboard({
           return;
         }
         setNeedsBootstrap(Boolean(boot.needsBootstrap));
+        setAdminPathLocked(Boolean(boot.adminPathLocked));
         if (!boot.needsBootstrap && getAdminToken()) {
           const me = await apiRequest('/api/admin/auth/me', { authScope: 'admin' });
           setAdminUser(me.admin);
@@ -191,6 +200,10 @@ export function AdminDashboard({
       setBootstrapResult(res);
       setNeedsBootstrap(false);
       setLoginForm((f) => ({ ...f, email: res.email }));
+      if (res.configuredAdminPath) {
+        setAdminPathLocked(true);
+        navigate(res.configuredAdminPath);
+      }
     } catch (err) {
       setAuthError(err instanceof ApiError ? err.message : 'Bootstrap failed.');
     } finally {
@@ -336,6 +349,20 @@ export function AdminDashboard({
                   onChange={(e) => setBootForm({ ...bootForm, setupToken: e.target.value })}
                   className="w-full px-3.5 py-2.5 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
+                {!adminPathLocked && (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Custom Admin URL Path (optional, e.g. /vendor-ops)"
+                      value={bootForm.adminPath}
+                      onChange={(e) => setBootForm({ ...bootForm, adminPath: e.target.value })}
+                      className="w-full px-3.5 py-2.5 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Once set, visiting that website link redirects directly to this Admin Portal login.
+                    </p>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={submitting}
@@ -1135,6 +1162,78 @@ export function AdminDashboard({
           {/* SYSTEM & FEES */}
           {tab === 'system' && (
             <div className="space-y-6">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div>
+                    <h2 className="text-base font-semibold">Vendor Admin Portal URL</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Once set by the vendor, opening that website URL loads this Administrator Portal login while hiding the default path.
+                    </p>
+                  </div>
+                  <StatusText status={systemData.adminPortal?.locked ? 'LOCKED' : 'DEFAULT'} />
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div>
+                    <p className="text-slate-500">Active Admin Portal Link</p>
+                    <p className="font-mono font-semibold text-slate-900 dark:text-white break-all">
+                      {typeof window !== 'undefined' ? window.location.origin : ''}
+                      {systemData.adminPortal?.adminPath || '/admin'}
+                    </p>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-500">
+                    Source: {systemData.adminPortal?.source === 'env' ? 'Environment (ADMIN_PATH)' : systemData.adminPortal?.source === 'database' ? 'Vendor One-Time Lock' : 'Default (/admin)'}
+                  </span>
+                </div>
+
+                {!systemData.adminPortal?.locked && (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      setSubmitting(true);
+                      try {
+                        const res = await apiRequest<{ adminPath: string; locked: boolean }>('/api/admin/system/admin-path', {
+                          method: 'PUT',
+                          authScope: 'admin',
+                          body: { adminPath: vendorPathInput },
+                        });
+                        setVendorPathInput('');
+                        setToast({
+                          type: 'success',
+                          message: `Admin portal URL locked to ${res.adminPath}. Redirecting...`,
+                        });
+                        await loadWorkspaceTab('system');
+                        navigate(res.adminPath);
+                      } catch (err) {
+                        setToast({
+                          type: 'error',
+                          message: err instanceof ApiError ? err.message : 'Unable to update admin portal URL.',
+                        });
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    className="flex flex-col sm:flex-row gap-2"
+                  >
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter custom path or full URL (e.g. /vendor-ops or https://site.com/vendor-ops)"
+                      value={vendorPathInput}
+                      onChange={(e) => setVendorPathInput(e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                    />
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white whitespace-nowrap cursor-pointer"
+                    >
+                      {submitting ? 'Saving...' : 'Set & Lock Admin URL'}
+                    </button>
+                  </form>
+                )}
+              </div>
+
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
                 <h2 className="text-base font-semibold pb-3 border-b border-slate-100 dark:border-slate-800">
                   Configured Transaction Fees

@@ -17,10 +17,12 @@ import {
   Loader2,
   LogOut,
   Menu,
+  Pencil,
   Printer,
   Send,
   Settings,
   ShieldCheck,
+  UserCircle2,
   Users,
   Wallet,
   X,
@@ -45,7 +47,13 @@ type TabId =
   | 'beneficiaries'
   | 'cards'
   | 'kyc'
+  | 'profile'
   | 'security';
+
+function formatIbanDisplay(iban?: string | null) {
+  if (!iban) return '—';
+  return String(iban).replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim();
+}
 
 export function CustomerDashboard({
   dark,
@@ -160,6 +168,23 @@ export function CustomerDashboard({
   const [twoFaSetup, setTwoFaSetup] = useState<{ secret: string; qrDataUrl: string } | null>(null);
   const [twoFaCode, setTwoFaCode] = useState('');
 
+  // Customer Profile ("Me") State
+  const [profileData, setProfileData] = useState<any>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    occupation: '',
+    preferredCurrency: 'USD',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    stateRegion: '',
+    postalCode: '',
+    country: 'GB',
+  });
+
   const loadDashboard = async () => {
     setLoading(true);
     setError('');
@@ -214,6 +239,24 @@ export function CustomerDashboard({
       } else if (targetTab === 'kyc') {
         const k = await apiRequest('/api/kyc/status');
         setKycData(k);
+      } else if (targetTab === 'profile') {
+        const p = await apiRequest('/api/user/profile');
+        if (p?.profile) {
+          setProfileData(p.profile);
+          setProfileForm({
+            firstName: p.profile.first_name || '',
+            lastName: p.profile.last_name || '',
+            phone: p.profile.phone || '',
+            occupation: p.profile.occupation || '',
+            preferredCurrency: p.profile.preferred_currency || 'USD',
+            addressLine1: p.profile.address_line_1 || '',
+            addressLine2: p.profile.address_line_2 || '',
+            city: p.profile.city || '',
+            stateRegion: p.profile.state_region || '',
+            postalCode: p.profile.postal_code || '',
+            country: p.profile.country || 'GB',
+          });
+        }
       } else if (targetTab === 'security') {
         const s = await apiRequest('/api/auth/sessions');
         setSessionsData(s);
@@ -229,7 +272,34 @@ export function CustomerDashboard({
   const switchTab = (next: TabId) => {
     setTab(next);
     setMobileMenu(false);
+    if (next !== 'profile') {
+      setProfileEditing(false);
+    }
     loadTabData(next);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const res = await apiRequest('/api/user/profile', {
+        method: 'PUT',
+        body: profileForm,
+      });
+      if (res?.profile) {
+        setProfileData(res.profile);
+      }
+      setProfileEditing(false);
+      setToast({ type: 'success', message: 'Personal profile details updated.' });
+      await loadDashboard();
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err instanceof ApiError ? err.message : 'Unable to save profile changes.',
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const fetchTransactions = async (page = 1) => {
@@ -639,7 +709,8 @@ export function CustomerDashboard({
     { id: 'beneficiaries', label: 'Beneficiaries', icon: <Users className="w-4 h-4" /> },
     { id: 'cards', label: 'Bank Cards', icon: <CreditCard className="w-4 h-4" /> },
     { id: 'kyc', label: 'KYC Verification', icon: <FileCheck2 className="w-4 h-4" /> },
-    { id: 'security', label: 'Security & Profile', icon: <Settings className="w-4 h-4" /> },
+    { id: 'profile', label: 'Me (Profile)', icon: <UserCircle2 className="w-4 h-4" /> },
+    { id: 'security', label: 'Security', icon: <Settings className="w-4 h-4" /> },
   ];
 
   const allCurrencyCodes = ['USD', 'EUR', 'GBP', 'NGN', 'CAD', 'AUD', 'CHF', 'JPY'];
@@ -678,12 +749,17 @@ export function CustomerDashboard({
         </nav>
 
         <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-          <div className="px-2">
+          <button
+            type="button"
+            onClick={() => switchTab('profile')}
+            className="w-full px-2 py-1.5 rounded-lg text-left hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+          >
             <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
               {customer?.first_name} {customer?.last_name}
             </p>
             <p className="text-xs text-slate-500 truncate">{customer?.email}</p>
-          </div>
+            <p className="mt-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-400">View Profile</p>
+          </button>
           <button
             type="button"
             onClick={handleLogout}
@@ -850,12 +926,17 @@ export function CustomerDashboard({
                     )}
                     <span aria-hidden="true">·</span>
                     <span>
-                      IBAN <span className="font-mono text-slate-800 dark:text-slate-200">{primaryAccount?.iban}</span>
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span>
                       KYC: <StatusText status={customer?.kyc_status} />
                     </span>
+                    <span aria-hidden="true">·</span>
+                    <button
+                      type="button"
+                      onClick={() => switchTab('profile')}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      <UserCircle2 className="w-3.5 h-3.5" />
+                      <span>View Profile</span>
+                    </button>
                     {copiedMsg && <span className="text-emerald-600 dark:text-emerald-400 font-medium">{copiedMsg}</span>}
                   </p>
                 </div>
@@ -1285,7 +1366,7 @@ export function CustomerDashboard({
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Enter account number e.g. MRD100000002"
+                      placeholder="Enter 10-digit account number or IBAN"
                       value={transferForm.recipientAccountNumber}
                       onChange={(e) =>
                         setTransferForm({
@@ -2216,6 +2297,389 @@ export function CustomerDashboard({
             </div>
           )}
 
+          {/* TAB 8B: ME (CUSTOMER PROFILE & ACCOUNT DETAILS) */}
+          {tab === 'profile' && (
+            <div className="space-y-6">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-700 text-white flex items-center justify-center font-display font-bold text-lg shrink-0">
+                    {`${(profileData?.first_name || customer?.first_name || 'M')[0]}${(profileData?.last_name || customer?.last_name || 'B')[0]}`.toUpperCase()}
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-display font-bold text-slate-900 dark:text-white">
+                      {profileData?.first_name || customer?.first_name} {profileData?.last_name || customer?.last_name}
+                    </h2>
+                    <p className="text-xs text-slate-500">{profileData?.email || customer?.email}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-medium text-slate-700 dark:text-slate-300">
+                        {(profileData?.account_tier || customer?.account_tier || 'PERSONAL')} ACCOUNT
+                      </span>
+                      <StatusText status={profileData?.kyc_status || customer?.kyc_status} />
+                      {profileData?.email_verified_at && (
+                        <span className="text-emerald-700 dark:text-emerald-400 font-medium">Email Verified</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {!profileEditing ? (
+                    <button
+                      type="button"
+                      onClick={() => setProfileEditing(true)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setProfileEditing(false)}
+                      className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => switchTab('security')}
+                    className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
+                  >
+                    Security Settings
+                  </button>
+                </div>
+              </div>
+
+              {profileEditing ? (
+                <form
+                  onSubmit={handleSaveProfile}
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-5"
+                >
+                  <div>
+                    <h3 className="text-base font-semibold">Edit Personal Details</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Update your contact details, occupation, preferred currency, and residential address.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">First Name</label>
+                      <input
+                        type="text"
+                        required
+                        disabled={profileData?.kyc_status === 'APPROVED'}
+                        value={profileForm.firstName}
+                        onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Last Name</label>
+                      <input
+                        type="text"
+                        required
+                        disabled={profileData?.kyc_status === 'APPROVED'}
+                        value={profileForm.lastName}
+                        onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 disabled:opacity-60"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Phone Number</label>
+                      <input
+                        type="tel"
+                        required
+                        value={profileForm.phone}
+                        onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Occupation</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Software Engineer, Consultant"
+                        value={profileForm.occupation}
+                        onChange={(e) => setProfileForm({ ...profileForm, occupation: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Preferred Currency</label>
+                      <select
+                        value={profileForm.preferredCurrency}
+                        onChange={(e) => setProfileForm({ ...profileForm, preferredCurrency: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      >
+                        {allCurrencyCodes.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Country (ISO-2)</label>
+                      <input
+                        type="text"
+                        maxLength={2}
+                        required
+                        value={profileForm.country}
+                        onChange={(e) => setProfileForm({ ...profileForm, country: e.target.value.toUpperCase() })}
+                        className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium mb-1">Address Line 1</label>
+                      <input
+                        type="text"
+                        required
+                        value={profileForm.addressLine1}
+                        onChange={(e) => setProfileForm({ ...profileForm, addressLine1: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium mb-1">Address Line 2 (Optional)</label>
+                      <input
+                        type="text"
+                        value={profileForm.addressLine2}
+                        onChange={(e) => setProfileForm({ ...profileForm, addressLine2: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">City</label>
+                      <input
+                        type="text"
+                        required
+                        value={profileForm.city}
+                        onChange={(e) => setProfileForm({ ...profileForm, city: e.target.value })}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">State / Region</label>
+                        <input
+                          type="text"
+                          value={profileForm.stateRegion}
+                          onChange={(e) => setProfileForm({ ...profileForm, stateRegion: e.target.value })}
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Postal Code</label>
+                        <input
+                          type="text"
+                          value={profileForm.postalCode}
+                          onChange={(e) => setProfileForm({ ...profileForm, postalCode: e.target.value })}
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {profileData?.kyc_status === 'APPROVED' && (
+                    <p className="text-[11px] text-slate-500">
+                      Legal name fields are locked after KYC approval. Contact compliance support to update verified identity names.
+                    </p>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setProfileEditing(false)}
+                      className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="px-5 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white cursor-pointer"
+                    >
+                      {submitting ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                      <h3 className="text-base font-semibold">Personal Information</h3>
+                      <button
+                        type="button"
+                        onClick={() => setProfileEditing(true)}
+                        className="text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <dt className="text-slate-500">Full Legal Name</dt>
+                        <dd className="mt-0.5 font-semibold text-slate-900 dark:text-white">
+                          {profileData?.first_name || customer?.first_name} {profileData?.last_name || customer?.last_name}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Email Address</dt>
+                        <dd className="mt-0.5 font-medium break-all">{profileData?.email || customer?.email}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Phone Number</dt>
+                        <dd className="mt-0.5 font-mono">{profileData?.phone || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Date of Birth</dt>
+                        <dd className="mt-0.5 font-mono">
+                          {profileData?.date_of_birth ? String(profileData.date_of_birth).slice(0, 10) : '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Nationality</dt>
+                        <dd className="mt-0.5 font-mono">{profileData?.nationality || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Occupation</dt>
+                        <dd className="mt-0.5">{profileData?.occupation || 'Not specified'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Preferred Currency</dt>
+                        <dd className="mt-0.5 font-mono font-semibold">
+                          {profileData?.preferred_currency || customer?.preferred_currency || 'USD'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Account Tier</dt>
+                        <dd className="mt-0.5 font-medium">{profileData?.account_tier || customer?.account_tier || 'PERSONAL'}</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                      <h3 className="text-base font-semibold">Residential Address</h3>
+                      <button
+                        type="button"
+                        onClick={() => setProfileEditing(true)}
+                        className="text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div className="sm:col-span-2">
+                        <dt className="text-slate-500">Street Address</dt>
+                        <dd className="mt-0.5 font-medium">
+                          {profileData?.address_line_1 || '—'}
+                          {profileData?.address_line_2 ? `, ${profileData.address_line_2}` : ''}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">City</dt>
+                        <dd className="mt-0.5 font-medium">{profileData?.city || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">State / Region</dt>
+                        <dd className="mt-0.5">{profileData?.state_region || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Postal Code</dt>
+                        <dd className="mt-0.5 font-mono">{profileData?.postal_code || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Country</dt>
+                        <dd className="mt-0.5 font-mono">{profileData?.country || '—'}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div>
+                    <h3 className="text-base font-semibold">Banking Account Details</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Each account has its own unique 10-digit account number and ISO-13616 IBAN for receiving funds.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAccountNumber}
+                    disabled={generatingAccount}
+                    className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white cursor-pointer"
+                  >
+                    {generatingAccount ? 'Generating...' : '+ New Account Number'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {(dashboard?.bankAccounts || []).map((ba: any, idx: number) => (
+                    <div
+                      key={ba.id}
+                      className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 space-y-3 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-900 dark:text-white">
+                          {idx === 0 ? 'Primary Checking Account' : `Receiving Account #${idx + 1}`}
+                        </span>
+                        <StatusText status={ba.status} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[11px] text-slate-500">Account Holder</p>
+                          <p className="font-medium text-slate-900 dark:text-white">
+                            {profileData?.first_name || customer?.first_name} {profileData?.last_name || customer?.last_name}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-slate-500">Account Number</p>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-semibold text-slate-900 dark:text-white">{ba.account_number}</span>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(ba.account_number, 'Account number')}
+                              className="text-blue-700 dark:text-blue-400 cursor-pointer"
+                              aria-label="Copy account number"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-slate-500">Sort / Routing Code</p>
+                          <p className="font-mono">{ba.routing_number || '04-06-18'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-slate-500">BIC / SWIFT</p>
+                          <p className="font-mono">{ba.bic_swift || 'MRDNGB2L'}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[11px] text-slate-500">IBAN</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono font-medium text-slate-900 dark:text-white break-all">
+                              {formatIbanDisplay(ba.iban)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(ba.iban, 'IBAN')}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 shrink-0 cursor-pointer"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span>Copy</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 9: SECURITY, 2FA, PIN & SESSIONS */}
           {tab === 'security' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -2448,12 +2912,15 @@ export function CustomerDashboard({
                       <span>Copy Number</span>
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-slate-700 dark:text-slate-300">
-                    <p>Bank: Meridian International Bank</p>
-                    <p>Name: {customer?.first_name} {customer?.last_name}</p>
-                    <p>Account: {ba.account_number}</p>
-                    <p>BIC/SWIFT: {ba.bic_swift}</p>
-                    <p className="sm:col-span-2 break-all">IBAN: {ba.iban}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
+                    <p><span className="text-slate-500">Bank:</span> Meridian International Bank</p>
+                    <p><span className="text-slate-500">Beneficiary:</span> {customer?.first_name} {customer?.last_name}</p>
+                    <p className="font-mono"><span className="font-sans text-slate-500">Account:</span> {ba.account_number}</p>
+                    <p className="font-mono"><span className="font-sans text-slate-500">Sort / Routing:</span> {ba.routing_number || '04-06-18'}</p>
+                    <p className="font-mono"><span className="font-sans text-slate-500">BIC / SWIFT:</span> {ba.bic_swift || 'MRDNGB2L'}</p>
+                    <p className="sm:col-span-2 font-mono break-all">
+                      <span className="font-sans text-slate-500">IBAN:</span> {formatIbanDisplay(ba.iban)}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -2604,7 +3071,7 @@ export function CustomerDashboard({
             { id: 'overview' as TabId, label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
             { id: 'wallets' as TabId, label: 'Wallets', icon: <Wallet className="w-4 h-4" /> },
             { id: 'transfers' as TabId, label: 'Send', icon: <Send className="w-4 h-4" /> },
-            { id: 'transactions' as TabId, label: 'History', icon: <History className="w-4 h-4" /> },
+            { id: 'profile' as TabId, label: 'Me', icon: <UserCircle2 className="w-4 h-4" /> },
           ].map((item) => (
             <button
               key={item.id}

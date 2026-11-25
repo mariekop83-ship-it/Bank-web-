@@ -146,7 +146,7 @@ export async function executeTransfer(input: CreateTransferInput) {
     let recipientWallet: any = null;
 
     if (isInternal || input.transferType === 'BENEFICIARY') {
-      const cleanAcct = input.recipientAccountNumber.trim().toUpperCase();
+      const cleanAcct = input.recipientAccountNumber.replace(/\s+/g, '').trim().toUpperCase();
       const [recipAccounts]: any = await conn.query(
         `SELECT ca.*, u.status AS recip_user_status, u.email AS recip_email
          FROM bank_accounts ba

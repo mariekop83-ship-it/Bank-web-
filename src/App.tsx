@@ -36,6 +36,29 @@ const DEFAULT_CONFIG: PublicAppConfig = {
   publicSettings: {},
 };
 
+const KNOWN_PUBLIC_PATHS = new Set([
+  '',
+  '/',
+  '/personal',
+  '/business',
+  '/multi-currency',
+  '/international-transfers',
+  '/cards',
+  '/security',
+  '/about',
+  '/help-center',
+  '/faq',
+  '/contact',
+  '/privacy-policy',
+  '/terms',
+  '/cookie-policy',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+]);
+
 function AppShell() {
   const { path } = useRouter();
   const [dark, setDark] = useState<boolean>(() => {
@@ -47,6 +70,11 @@ function AppShell() {
   });
   const [config, setConfig] = useState<PublicAppConfig>(DEFAULT_CONFIG);
   const [, setCurrentUser] = useState<any>(null);
+  const [adminRouteMatch, setAdminRouteMatch] = useState<{ checkedPath: string; isAdmin: boolean } | null>(null);
+
+  const normalizedPath = path.replace(/\/+$/, '') || '/';
+  const isKnownNonAdminRoute =
+    KNOWN_PUBLIC_PATHS.has(normalizedPath) || normalizedPath.startsWith('/dashboard');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
@@ -67,36 +95,69 @@ function AppShell() {
       });
   }, []);
 
+  useEffect(() => {
+    if (isKnownNonAdminRoute) {
+      return;
+    }
+    let cancelled = false;
+    apiRequest<{ isAdminRoute: boolean }>(
+      `/api/public/resolve-route?path=${encodeURIComponent(normalizedPath)}`,
+      { authScope: 'none' }
+    )
+      .then((res) => {
+        if (!cancelled) {
+          setAdminRouteMatch({ checkedPath: normalizedPath, isAdmin: Boolean(res?.isAdminRoute) });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAdminRouteMatch({ checkedPath: normalizedPath, isAdmin: false });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedPath, isKnownNonAdminRoute]);
+
   const toggleTheme = () => setDark((d) => !d);
 
-  if (path.startsWith('/dashboard')) {
+  if (normalizedPath.startsWith('/dashboard')) {
     return <CustomerDashboard dark={dark} onToggleTheme={toggleTheme} />;
   }
 
-  if (path.startsWith('/admin')) {
-    return <AdminDashboard dark={dark} onToggleTheme={toggleTheme} />;
+  if (!isKnownNonAdminRoute) {
+    if (!adminRouteMatch || adminRouteMatch.checkedPath !== normalizedPath) {
+      return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+          <div className="w-6 h-6 rounded-full border-2 border-blue-700 border-t-transparent animate-spin" />
+        </div>
+      );
+    }
+    if (adminRouteMatch.isAdmin) {
+      return <AdminDashboard dark={dark} onToggleTheme={toggleTheme} />;
+    }
   }
 
   const renderPublicRoute = () => {
-    if (path === '/' || path === '') {
+    if (normalizedPath === '/') {
       return <HomePage config={config} />;
     }
-    if (path === '/login') {
+    if (normalizedPath === '/login') {
       return <LoginPage onLoginSuccess={(u) => setCurrentUser(u)} />;
     }
-    if (path === '/register') {
+    if (normalizedPath === '/register') {
       return <RegisterPage />;
     }
-    if (path === '/forgot-password') {
+    if (normalizedPath === '/forgot-password') {
       return <ForgotResetVerifyPage mode="forgot" />;
     }
-    if (path === '/reset-password') {
+    if (normalizedPath === '/reset-password') {
       return <ForgotResetVerifyPage mode="reset" />;
     }
-    if (path === '/verify-email') {
+    if (normalizedPath === '/verify-email') {
       return <ForgotResetVerifyPage mode="verify" />;
     }
-    return <ContentPage pageKey={path} config={config} />;
+    return <ContentPage pageKey={normalizedPath} config={config} />;
   };
 
   return (
