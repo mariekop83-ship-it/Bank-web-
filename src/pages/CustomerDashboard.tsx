@@ -5,6 +5,8 @@ import {
   ArrowUpRight,
   Bell,
   Building2,
+  CheckCircle2,
+  Copy,
   CreditCard,
   Download,
   Eye,
@@ -12,6 +14,7 @@ import {
   FileCheck2,
   History,
   LayoutDashboard,
+  Loader2,
   LogOut,
   Menu,
   Printer,
@@ -97,6 +100,19 @@ export function CustomerDashboard({
   });
   const [confirmTransferOpen, setConfirmTransferOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [generatingAccount, setGeneratingAccount] = useState(false);
+  const [copiedMsg, setCopiedMsg] = useState('');
+  const [accountLookup, setAccountLookup] = useState<{
+    loading: boolean;
+    found?: boolean;
+    accountName?: string;
+    bankName?: string;
+    country?: string;
+    supportedCurrencies?: string[];
+    supportsRequestedCurrency?: boolean;
+    isOwnAccount?: boolean;
+    error?: string;
+  } | null>(null);
 
   // FX Form
   const [fxForm, setFxForm] = useState({ sourceWalletId: 0, targetWalletId: 0, sourceAmount: '' });
@@ -229,6 +245,165 @@ export function CustomerDashboard({
     setTxPagination(res.pagination || { page: 1, totalPages: 1, total: 0 });
   };
 
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMsg(`${label} copied`);
+      setTimeout(() => setCopiedMsg(''), 2000);
+    } catch {
+      setToast({ type: 'info', message: `${label}: ${text}` });
+    }
+  };
+
+  const resolveRecipientAccount = async (acctNum: string) => {
+    const clean = acctNum.trim();
+    if (clean.length < 6 || transferForm.transferType !== 'INTERNAL') {
+      setAccountLookup(null);
+      return;
+    }
+    const sourceWallet = wallets.find((w: any) => Number(w.id) === Number(transferForm.sourceCurrencyAccountId));
+    const curr = sourceWallet?.currency || transferForm.recipientCurrency || 'USD';
+    setAccountLookup({ loading: true });
+    try {
+      const res = await apiRequest(
+        `/api/transfers/resolve-account?accountNumber=${encodeURIComponent(clean)}&currency=${encodeURIComponent(curr)}`
+      );
+      setAccountLookup({ loading: false, ...res });
+      if (res.found) {
+        setTransferForm((f) => ({
+          ...f,
+          recipientName: res.accountName || f.recipientName,
+          recipientBank: res.bankName || 'Meridian International Bank',
+          recipientCountry: res.country || f.recipientCountry,
+          recipientCurrency: curr,
+        }));
+      }
+    } catch (err) {
+      setAccountLookup({
+        loading: false,
+        found: false,
+        error: err instanceof ApiError ? err.message : 'Unable to verify account number.',
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== 'transfers' || transferForm.transferType !== 'INTERNAL') {
+      setAccountLookup(null);
+      return;
+    }
+    const clean = transferForm.recipientAccountNumber.trim();
+    if (clean.length < 6) {
+      setAccountLookup(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      resolveRecipientAccount(clean);
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [transferForm.recipientAccountNumber, transferForm.transferType, transferForm.sourceCurrencyAccountId, tab]);
+
+  const handleGenerateAccountNumber = async () => {
+    setGeneratingAccount(true);
+    try {
+      const res = await apiRequest('/api/user/bank-accounts', { method: 'POST', body: {} });
+      setToast({
+        type: 'success',
+        message: `New account number ${res.bankAccount.account_number} generated with multi-currency wallets.`,
+      });
+      await loadDashboard();
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err instanceof ApiError ? err.message : 'Unable to generate account number.',
+      });
+    } finally {
+      setGeneratingAccount(false);
+    }
+  };
+
+  const downloadReceiptFile = (tx: any, entries: any[]) => {
+    const esc = (v: unknown) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Transaction Receipt - ${esc(tx.reference)}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8fafc; color: #0f172a; padding: 32px; }
+  .card { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 28px; }
+  .head { border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .brand { font-size: 18px; font-weight: 700; color: #0f172a; }
+  .sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .status { font-size: 12px; font-weight: 700; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 4px 10px; border-radius: 6px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px; }
+  .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+  .val { font-weight: 600; color: #0f172a; word-break: break-word; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .amount-box { margin: 20px 0; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .foot { margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 14px; font-size: 11px; color: #64748b; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <div>
+        <div class="brand">Meridian International Bank</div>
+        <div class="sub">Official Double-Entry Transaction Receipt</div>
+      </div>
+      <div class="status">${esc(tx.status)}</div>
+    </div>
+    <div class="amount-box">
+      <div>
+        <div class="label">Transfer Amount</div>
+        <div class="val mono" style="font-size:22px;">${esc(formatMoney(tx.total_amount ?? tx.amount, tx.currency))}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="label">Fee</div>
+        <div class="val mono">${esc(formatMoney(tx.fee_amount || '0', tx.currency))}</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div><div class="label">Reference</div><div class="val mono">${esc(tx.reference)}</div></div>
+      <div><div class="label">Date (UTC)</div><div class="val mono">${esc(formatDateUtc(tx.posted_at || tx.created_at))}</div></div>
+      ${tx.sender_name ? `<div><div class="label">Sender Name</div><div class="val">${esc(tx.sender_name)}</div></div>` : ''}
+      ${tx.sender_account_number ? `<div><div class="label">Sender Account</div><div class="val mono">${esc(tx.sender_account_number)}</div></div>` : ''}
+      ${tx.recipient_name ? `<div><div class="label">Recipient Name</div><div class="val">${esc(tx.recipient_name)}</div></div>` : ''}
+      ${tx.recipient_account_number ? `<div><div class="label">Recipient Account</div><div class="val mono">${esc(tx.recipient_account_number)}</div></div>` : ''}
+      ${tx.recipient_bank ? `<div><div class="label">Recipient Bank</div><div class="val">${esc(tx.recipient_bank)}</div></div>` : ''}
+      <div><div class="label">Type</div><div class="val">${esc(String(tx.transaction_type || tx.transfer_type || '').replace(/_/g, ' '))}</div></div>
+      <div style="grid-column: span 2;"><div class="label">Description</div><div class="val">${esc(tx.description)}</div></div>
+    </div>
+    ${
+      entries.length > 0
+        ? `<div style="margin-top:18px;border-top:1px solid #e2e8f0;padding-top:14px;"><div class="label" style="margin-bottom:8px;">Customer Ledger Postings</div>${entries
+            .map(
+              (e) =>
+                `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;" class="mono"><span>${esc(e.entry_type)} · ${esc(e.name)}</span><span>${esc(formatMoney(e.amount, e.currency))}</span></div>`
+            )
+            .join('')}</div>`
+        : ''
+    }
+    <div class="foot">Generated automatically by Meridian International Bank Ledger Engine · Reference ${esc(tx.reference)}</div>
+  </div>
+</body>
+</html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Meridian-Receipt-${tx.reference || 'TX'}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const openTransactionReceipt = async (id: number) => {
     try {
       const res = await apiRequest(`/api/transactions/${id}`);
@@ -252,10 +427,27 @@ export function CustomerDashboard({
       setConfirmTransferOpen(false);
       setToast({
         type: 'success',
-        message: `Transfer ${res.transfer.reference} (${res.transfer.status}) processed.`,
+        message: `Transfer ${res.transfer.reference} (${res.transfer.status}) completed. Official receipt generated below.`,
       });
       setTransferForm((f) => ({ ...f, amount: '', description: '', transactionPin: '' }));
+      setAccountLookup(null);
       await Promise.all([loadDashboard(), loadTabData('transfers')]);
+
+      if (res.transfer?.ledger_transaction_id) {
+        await openTransactionReceipt(Number(res.transfer.ledger_transaction_id));
+      } else {
+        setReceiptTx({
+          tx: {
+            ...res.transfer,
+            transaction_type: `${res.transfer.transfer_type}_TRANSFER`,
+            total_amount: res.transfer.amount,
+            posted_at: res.transfer.created_at || new Date().toISOString(),
+            sender_name: `${customer?.first_name || ''} ${customer?.last_name || ''}`.trim(),
+            sender_account_number: primaryAccount?.account_number,
+          },
+          entries: [],
+        });
+      }
     } catch (err) {
       setConfirmTransferOpen(false);
       setToast({ type: 'error', message: err instanceof ApiError ? err.message : 'Transfer failed.' });
@@ -637,12 +829,29 @@ export function CustomerDashboard({
                   <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white">
                     Welcome, {customer?.first_name} {customer?.last_name}
                   </h1>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Account <span className="font-mono text-slate-800 dark:text-slate-200">{primaryAccount?.account_number}</span>
-                    <span className="mx-2" aria-hidden="true">·</span>
-                    IBAN <span className="font-mono text-slate-800 dark:text-slate-200">{primaryAccount?.iban}</span>
-                    <span className="mx-2" aria-hidden="true">·</span>
-                    KYC: <StatusText status={customer?.kyc_status} />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>
+                      Account <span className="font-mono text-slate-800 dark:text-slate-200">{primaryAccount?.account_number}</span>
+                    </span>
+                    {primaryAccount?.account_number && (
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(primaryAccount.account_number, 'Account number')}
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copy</span>
+                      </button>
+                    )}
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      IBAN <span className="font-mono text-slate-800 dark:text-slate-200">{primaryAccount?.iban}</span>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      KYC: <StatusText status={customer?.kyc_status} />
+                    </span>
+                    {copiedMsg && <span className="text-emerald-600 dark:text-emerald-400 font-medium">{copiedMsg}</span>}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -970,7 +1179,12 @@ export function CustomerDashboard({
           {tab === 'transfers' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
-                <h2 className="text-base font-semibold">Initiate Money Transfer</h2>
+                <div>
+                  <h2 className="text-base font-semibold">Send Money</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Choose bank, enter recipient account number to auto-verify account name, set amount, and get an instant receipt.
+                  </p>
+                </div>
 
                 {beneficiaries.length > 0 && (
                   <div>
@@ -1004,10 +1218,18 @@ export function CustomerDashboard({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs mb-1">Source Wallet</label>
+                    <label className="block text-xs font-medium mb-1">1. From Wallet</label>
                     <select
                       value={transferForm.sourceCurrencyAccountId}
-                      onChange={(e) => setTransferForm({ ...transferForm, sourceCurrencyAccountId: Number(e.target.value) })}
+                      onChange={(e) => {
+                        const nextId = Number(e.target.value);
+                        const w = wallets.find((x: any) => Number(x.id) === nextId);
+                        setTransferForm({
+                          ...transferForm,
+                          sourceCurrencyAccountId: nextId,
+                          recipientCurrency: w?.currency || transferForm.recipientCurrency,
+                        });
+                      }}
                       className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                     >
                       {wallets.map((w: any) => (
@@ -1018,50 +1240,94 @@ export function CustomerDashboard({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">Transfer Type</label>
+                    <label className="block text-xs font-medium mb-1">2. Choose Bank</label>
                     <select
                       value={transferForm.transferType}
-                      onChange={(e) => setTransferForm({ ...transferForm, transferType: e.target.value as any })}
+                      onChange={(e) => {
+                        const nextType = e.target.value as 'INTERNAL' | 'DOMESTIC' | 'INTERNATIONAL';
+                        setAccountLookup(null);
+                        setTransferForm({
+                          ...transferForm,
+                          transferType: nextType,
+                          recipientBank: nextType === 'INTERNAL' ? 'Meridian International Bank' : '',
+                          recipientName: nextType === 'INTERNAL' ? '' : transferForm.recipientName,
+                        });
+                      }}
                       className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                     >
-                      <option value="INTERNAL">Internal (Platform Customer)</option>
-                      <option value="DOMESTIC">Domestic Bank Rail</option>
-                      <option value="INTERNATIONAL">International SWIFT</option>
-                      <option value="BENEFICIARY">Beneficiary</option>
+                      <option value="INTERNAL">Meridian International Bank (Instant)</option>
+                      <option value="DOMESTIC">External Domestic Bank (Partner Rail)</option>
+                      <option value="INTERNATIONAL">External International SWIFT (Partner Rail)</option>
                     </select>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs mb-1">Recipient Name</label>
-                  <input
-                    type="text"
-                    value={transferForm.recipientName}
-                    onChange={(e) => setTransferForm({ ...transferForm, recipientName: e.target.value })}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
+                {transferForm.transferType !== 'INTERNAL' && (
                   <div>
-                    <label className="block text-xs mb-1">Account / IBAN</label>
+                    <label className="block text-xs font-medium mb-1">External Bank Name</label>
                     <input
                       type="text"
-                      placeholder="MRD100000002"
-                      value={transferForm.recipientAccountNumber}
-                      onChange={(e) => setTransferForm({ ...transferForm, recipientAccountNumber: e.target.value })}
-                      className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1">Recipient Bank</label>
-                    <input
-                      type="text"
+                      placeholder="e.g. Barclays Bank UK"
                       value={transferForm.recipientBank}
                       onChange={(e) => setTransferForm({ ...transferForm, recipientBank: e.target.value })}
                       className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                     />
                   </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium mb-1">3. Recipient Account Number / IBAN</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Enter account number e.g. MRD100000002"
+                      value={transferForm.recipientAccountNumber}
+                      onChange={(e) =>
+                        setTransferForm({
+                          ...transferForm,
+                          recipientAccountNumber: e.target.value,
+                          ...(transferForm.transferType === 'INTERNAL' ? { recipientName: '' } : {}),
+                        })
+                      }
+                      className="flex-1 px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                    />
+                    {transferForm.transferType === 'INTERNAL' && (
+                      <button
+                        type="button"
+                        onClick={() => resolveRecipientAccount(transferForm.recipientAccountNumber)}
+                        disabled={transferForm.recipientAccountNumber.trim().length < 6 || accountLookup?.loading}
+                        className="px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                      >
+                        {accountLookup?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Verify'}
+                      </button>
+                    )}
+                  </div>
+                  {accountLookup && !accountLookup.loading && accountLookup.found && (
+                    <div className="mt-2 p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold">Account Verified: {accountLookup.accountName}</p>
+                        <p className="text-[11px] opacity-90">
+                          {accountLookup.bankName} · Supported: {(accountLookup.supportedCurrencies || []).join(', ')}
+                          {accountLookup.isOwnAccount ? ' (Your own account)' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {accountLookup && !accountLookup.loading && accountLookup.found === false && (
+                    <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">{accountLookup.error}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1">4. Recipient Account Name</label>
+                  <input
+                    type="text"
+                    placeholder={transferForm.transferType === 'INTERNAL' ? 'Auto-filled once account number is verified' : 'Full beneficiary name'}
+                    value={transferForm.recipientName}
+                    onChange={(e) => setTransferForm({ ...transferForm, recipientName: e.target.value })}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                  />
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
@@ -1086,7 +1352,7 @@ export function CustomerDashboard({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">Amount</label>
+                    <label className="block text-xs font-medium mb-1">5. Amount</label>
                     <input
                       type="text"
                       placeholder="250.00"
@@ -1098,9 +1364,10 @@ export function CustomerDashboard({
                 </div>
 
                 <div>
-                  <label className="block text-xs mb-1">Description</label>
+                  <label className="block text-xs font-medium mb-1">6. Description / Narration</label>
                   <input
                     type="text"
+                    placeholder="Payment for dinner, invoice, etc."
                     value={transferForm.description}
                     onChange={(e) => setTransferForm({ ...transferForm, description: e.target.value })}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
@@ -1122,7 +1389,12 @@ export function CustomerDashboard({
                 <button
                   type="button"
                   onClick={() => setConfirmTransferOpen(true)}
-                  disabled={!transferForm.amount || !transferForm.recipientAccountNumber || !transferForm.recipientName}
+                  disabled={
+                    !transferForm.amount ||
+                    !transferForm.recipientAccountNumber ||
+                    !transferForm.recipientName ||
+                    !transferForm.description.trim()
+                  }
                   className="w-full px-4 py-2.5 text-sm font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white cursor-pointer"
                 >
                   Review & Send Transfer
@@ -1144,23 +1416,35 @@ export function CustomerDashboard({
                         <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
                           <th className="py-2 pr-3">Reference</th>
                           <th className="py-2 pr-3">Recipient</th>
-                          <th className="py-2 pr-3">Type</th>
+                          <th className="py-2 pr-3">Bank</th>
                           <th className="py-2 pr-3">Status</th>
-                          <th className="py-2 text-right">Amount</th>
+                          <th className="py-2 pr-3 text-right">Amount</th>
+                          <th className="py-2 text-right">Receipt</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {transfers.map((t) => (
-                          <tr key={t.id}>
+                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                             <td className="py-2.5 pr-3 font-mono">{t.reference}</td>
                             <td className="py-2.5 pr-3">
                               <p className="font-medium">{t.recipient_name}</p>
                               <p className="font-mono text-[11px] text-slate-500">{t.recipient_account_number}</p>
                             </td>
-                            <td className="py-2.5 pr-3">{t.transfer_type}</td>
+                            <td className="py-2.5 pr-3">{t.recipient_bank}</td>
                             <td className="py-2.5 pr-3"><StatusText status={t.status} /></td>
-                            <td className="py-2.5 text-right font-mono font-semibold">
+                            <td className="py-2.5 pr-3 text-right font-mono font-semibold">
                               {formatMoney(t.amount, t.currency, hideBalances)}
+                            </td>
+                            <td className="py-2.5 text-right">
+                              {t.ledger_transaction_id && (
+                                <button
+                                  type="button"
+                                  onClick={() => openTransactionReceipt(Number(t.ledger_transaction_id))}
+                                  className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-600 text-blue-700 dark:text-blue-400 font-medium cursor-pointer"
+                                >
+                                  Receipt
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -2045,81 +2329,178 @@ export function CustomerDashboard({
         onCancel={() => setConfirmTransferOpen(false)}
       />
 
-      {/* Receive Money Details Modal */}
+      {/* Receive Money & Account Number Generator Modal */}
       {receiveModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4">
+          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Receive Funds</h3>
+              <div>
+                <h3 className="text-lg font-semibold">Receive Funds & Account Numbers</h3>
+                <p className="text-xs text-slate-500">
+                  Share any of these details with another person on Meridian International Bank for instant transfers.
+                </p>
+              </div>
               <button type="button" onClick={() => setReceiveModalOpen(false)} className="p-1 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-500">
-              Share these internal ledger account details with another Meridian Bank customer for instant transfers:
-            </p>
-            <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs font-mono">
-              <p>Account Number: {primaryAccount?.account_number}</p>
-              <p>IBAN: {primaryAccount?.iban}</p>
-              <p>BIC / SWIFT: {primaryAccount?.bic_swift}</p>
+
+            <div className="space-y-3">
+              {(dashboard?.bankAccounts || []).map((ba: any, idx: number) => (
+                <div
+                  key={ba.id}
+                  className="p-4 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-900 dark:text-white">
+                      {idx === 0 ? 'Primary Receiving Account' : `Receiving Account #${idx + 1}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(ba.account_number, 'Account number')}
+                      className="inline-flex items-center gap-1 text-blue-700 dark:text-blue-400 font-medium hover:underline cursor-pointer"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Number</span>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-slate-700 dark:text-slate-300">
+                    <p>Bank: Meridian International Bank</p>
+                    <p>Name: {customer?.first_name} {customer?.last_name}</p>
+                    <p>Account: {ba.account_number}</p>
+                    <p>BIC/SWIFT: {ba.bic_swift}</p>
+                    <p className="sm:col-span-2 break-all">IBAN: {ba.iban}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleGenerateAccountNumber}
+                disabled={generatingAccount}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white cursor-pointer"
+              >
+                {generatingAccount ? 'Generating...' : 'Generate New Account Number'}
+              </button>
+              {copiedMsg && <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{copiedMsg}</span>}
             </div>
           </div>
         </div>
       )}
 
-      {/* Printable Transaction Receipt Modal */}
+      {/* Printable & Downloadable Official Transaction Receipt Modal */}
       {receiptTx && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4">
+          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-semibold">Transaction Receipt</h3>
+                <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+                  Meridian International Bank
+                </p>
+                <h3 className="text-base font-semibold">Official Transaction Receipt</h3>
                 <p className="text-xs font-mono text-slate-500">{receiptTx.tx.reference}</p>
               </div>
               <button type="button" onClick={() => setReceiptTx(null)} className="no-print p-1 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] text-slate-500 uppercase">Amount</p>
+                <p className="text-xl font-mono font-bold text-slate-900 dark:text-white">
+                  {formatMoney(receiptTx.tx.total_amount ?? receiptTx.tx.amount, receiptTx.tx.currency)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] text-slate-500 uppercase">Status</p>
+                <StatusText status={receiptTx.tx.status} />
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
                 <p className="text-slate-500">Type</p>
-                <p className="font-medium">{receiptTx.tx.transaction_type}</p>
-              </div>
-              <div>
-                <p className="text-slate-500">Status</p>
-                <StatusText status={receiptTx.tx.status} />
-              </div>
-              <div>
-                <p className="text-slate-500">Amount</p>
-                <p className="font-mono font-semibold">{formatMoney(receiptTx.tx.total_amount, receiptTx.tx.currency)}</p>
+                <p className="font-medium">{String(receiptTx.tx.transaction_type || '').replace(/_/g, ' ')}</p>
               </div>
               <div>
                 <p className="text-slate-500">Fee</p>
-                <p className="font-mono">{formatMoney(receiptTx.tx.fee_amount, receiptTx.tx.currency)}</p>
+                <p className="font-mono">{formatMoney(receiptTx.tx.fee_amount || '0', receiptTx.tx.currency)}</p>
               </div>
+              <div>
+                <p className="text-slate-500">Timestamp (UTC)</p>
+                <p className="font-mono">{formatDateUtc(receiptTx.tx.posted_at || receiptTx.tx.created_at)}</p>
+              </div>
+              {receiptTx.tx.sender_name && (
+                <div>
+                  <p className="text-slate-500">Sender</p>
+                  <p className="font-medium">{receiptTx.tx.sender_name}</p>
+                  {receiptTx.tx.sender_account_number && (
+                    <p className="font-mono text-[11px] text-slate-500">{receiptTx.tx.sender_account_number}</p>
+                  )}
+                </div>
+              )}
+              {receiptTx.tx.recipient_name && (
+                <div>
+                  <p className="text-slate-500">Recipient Name</p>
+                  <p className="font-medium">{receiptTx.tx.recipient_name}</p>
+                </div>
+              )}
+              {receiptTx.tx.recipient_account_number && (
+                <div>
+                  <p className="text-slate-500">Recipient Account</p>
+                  <p className="font-mono">{receiptTx.tx.recipient_account_number}</p>
+                </div>
+              )}
+              {receiptTx.tx.recipient_bank && (
+                <div className="col-span-2">
+                  <p className="text-slate-500">Recipient Bank</p>
+                  <p className="font-medium">{receiptTx.tx.recipient_bank}</p>
+                </div>
+              )}
               <div className="col-span-2">
                 <p className="text-slate-500">Description</p>
                 <p>{receiptTx.tx.description}</p>
               </div>
             </div>
+
             {receiptTx.entries.length > 0 && (
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800">
                 <p className="text-xs font-semibold mb-2">Customer Ledger Entries</p>
                 <div className="space-y-1.5 text-xs font-mono">
                   {receiptTx.entries.map((e) => (
-                    <div key={e.id} className="flex justify-between">
-                      <span>{e.entry_type} · {e.name}</span>
-                      <span>{formatMoney(e.amount, e.currency)} (Bal: {formatMoney(e.balance_after, e.currency)})</span>
+                    <div key={e.id} className="flex justify-between gap-2">
+                      <span className="truncate">{e.entry_type} · {e.name}</span>
+                      <span className="shrink-0">{formatMoney(e.amount, e.currency)} (Bal: {formatMoney(e.balance_after, e.currency)})</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            <div className="no-print flex justify-end gap-2 pt-2">
+
+            <div className="no-print flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => copyToClipboard(receiptTx.tx.reference, 'Reference')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Ref</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadReceiptFile(receiptTx.tx, receiptTx.entries)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Receipt</span>
+              </button>
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Receipt</span>

@@ -318,7 +318,7 @@ class MockMySqlDatabase {
     }
 
     // Transfers & Fees
-    if (q.startsWith('SELECT id, uuid, reference, status, amount, fee_amount, currency, created_at FROM transfers WHERE idempotency_key = ?')) {
+    if (q.includes('FROM transfers WHERE idempotency_key = ?')) {
       return [this.transfers.filter((t) => t.idempotency_key === params[0]), []];
     }
     if (q.startsWith('SELECT ca.*, ba.daily_transfer_limit')) {
@@ -334,7 +334,11 @@ class MockMySqlDatabase {
       return [[{ today_total: formatScaledToDecimal(total) }], []];
     }
     if (q.startsWith('SELECT ca.*, u.status AS recip_user_status')) {
-      const ba = this.bank_accounts.find((b) => b.account_number === params[1] || b.iban === params[2]);
+      const ba = this.bank_accounts.find(
+        (b) =>
+          String(b.account_number).toUpperCase() === String(params[1]).toUpperCase() ||
+          String(b.iban).toUpperCase() === String(params[2]).toUpperCase()
+      );
       if (!ba) return [[], []];
       const ca = this.currency_accounts.find((c) => c.bank_account_id === ba.id && c.currency === params[0]);
       if (!ca) return [[], []];

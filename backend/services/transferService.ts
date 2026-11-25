@@ -76,7 +76,7 @@ export async function executeTransfer(input: CreateTransferInput) {
   return await withTransaction(async (conn) => {
     // 1. Idempotency check on transfers table
     const [existingTransfers]: any = await conn.query(
-      `SELECT id, uuid, reference, status, amount, fee_amount, currency, created_at
+      `SELECT id, uuid, reference, status, amount, fee_amount, currency, recipient_name, recipient_account_number, recipient_bank, description, ledger_transaction_id, created_at
        FROM transfers WHERE idempotency_key = ? LIMIT 1`,
       [input.idempotencyKey]
     );
@@ -146,14 +146,15 @@ export async function executeTransfer(input: CreateTransferInput) {
     let recipientWallet: any = null;
 
     if (isInternal || input.transferType === 'BENEFICIARY') {
+      const cleanAcct = input.recipientAccountNumber.trim().toUpperCase();
       const [recipAccounts]: any = await conn.query(
         `SELECT ca.*, u.status AS recip_user_status, u.email AS recip_email
          FROM bank_accounts ba
          JOIN currency_accounts ca ON ca.bank_account_id = ba.id AND ca.currency = ?
          JOIN users u ON u.id = ba.user_id
-         WHERE ba.account_number = ? OR ba.iban = ?
+         WHERE UPPER(ba.account_number) = ? OR UPPER(ba.iban) = ?
          LIMIT 1`,
-        [senderWallet.currency, input.recipientAccountNumber.trim(), input.recipientAccountNumber.trim()]
+        [senderWallet.currency, cleanAcct, cleanAcct]
       );
 
       if (recipAccounts.length > 0) {

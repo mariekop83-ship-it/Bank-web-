@@ -14,7 +14,9 @@ export function errorHandler(err: any, _req: Request, res: Response, _next: Next
   const code = err?.code || undefined;
 
   if (status >= 500) {
-    console.error('[Server Error]', err?.message || err);
+    if (code !== 'DB_NOT_CONFIGURED') {
+      console.error('[Server Error]', err?.message || err);
+    }
     res.status(status).json({
       error:
         code === 'DB_NOT_CONFIGURED'

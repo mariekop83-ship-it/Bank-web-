@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getPool, withTransaction } from '../config/database.js';
+import { getPool, isDatabaseConfigured, withTransaction } from '../config/database.js';
 import { requireAdminAuth, requirePermission } from '../middleware/auth.js';
 import { authRateLimiter, clearSecureSessionCookie, setSecureSessionCookie } from '../middleware/security.js';
 import {
@@ -24,8 +24,12 @@ export const adminRouter = Router();
 // Public admin bootstrap check & first-run super-admin claim (only when 0 admins exist)
 adminRouter.get('/bootstrap-status', async (_req, res, next) => {
   try {
+    if (!isDatabaseConfigured()) {
+      res.json({ databaseConfigured: false, needsBootstrap: false });
+      return;
+    }
     const status = await getAdminBootstrapStatus();
-    res.json(status);
+    res.json({ databaseConfigured: true, ...status });
   } catch (err) {
     next(err);
   }

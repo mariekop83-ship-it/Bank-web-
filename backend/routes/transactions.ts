@@ -128,10 +128,18 @@ transactionsRouter.get('/:id', async (req, res, next) => {
     const pool = getPool();
     const userId = req.customer!.id;
     const [txRows]: any = await pool.query(
-      `SELECT DISTINCT lt.*
+      `SELECT DISTINCT lt.*,
+              t.transfer_type, t.recipient_name, t.recipient_account_number, t.recipient_bank,
+              t.recipient_country, t.recipient_currency, t.amount AS transfer_amount,
+              CONCAT(sp.first_name, ' ', sp.last_name) AS sender_name,
+              sba.account_number AS sender_account_number
        FROM ledger_transactions lt
        LEFT JOIN ledger_entries le ON le.ledger_transaction_id = lt.id
        LEFT JOIN ledger_accounts la ON la.id = le.ledger_account_id
+       LEFT JOIN transfers t ON t.ledger_transaction_id = lt.id
+       LEFT JOIN user_profiles sp ON sp.user_id = t.sender_user_id
+       LEFT JOIN currency_accounts sca ON sca.id = t.sender_currency_account_id
+       LEFT JOIN bank_accounts sba ON sba.id = sca.bank_account_id
        WHERE (lt.id = ? OR lt.uuid = ? OR lt.reference = ?)
          AND (lt.initiated_by_user_id = ? OR la.owner_user_id = ?)
        LIMIT 1`,

@@ -143,6 +143,89 @@ userRouter.post('/accounts', async (req, res, next) => {
   }
 });
 
+userRouter.post('/bank-accounts', async (req, res, next) => {
+  try {
+    const { accountType } = z
+      .object({
+        accountType: z.enum(['PERSONAL_CHECKING', 'BUSINESS_TREASURY']).optional(),
+      })
+      .parse(req.body || {});
+
+    const created = await withTransaction(async (conn) => {
+      const userId = req.customer!.id;
+      const [existingCountRows]: any = await conn.query(
+        `SELECT COUNT(*) AS cnt FROM bank_accounts WHERE user_id = ?`,
+        [userId]
+      );
+      if (Number(existingCountRows[0].cnt) >= 5) {
+        throw Object.assign(new Error('Maximum of 5 receiving account numbers reached per profile.'), {
+          statusCode: 400,
+        });
+      }
+
+      const [profRows]: any = await conn.query(
+        `SELECT preferred_currency, account_tier FROM user_profiles WHERE user_id = ? LIMIT 1`,
+        [userId]
+      );
+      const preferredCurrency = profRows[0]?.preferred_currency || 'USD';
+      const defaultType =
+        accountType ||
+        (profRows[0]?.account_tier === 'BUSINESS' ? 'BUSINESS_TREASURY' : 'PERSONAL_CHECKING');
+
+      const randDigits = String(crypto.randomInt(200000000, 999999999));
+      const accountNumber = `MRD${randDigits}`;
+      const iban = `GB29MRDN006016${randDigits}`;
+
+      const [bankRes]: any = await conn.query(
+        `INSERT INTO bank_accounts (uuid, user_id, account_number, iban, bic_swift, account_type)
+         VALUES (?, ?, ?, ?, 'MRDNGB2L', ?)`,
+        [crypto.randomUUID(), userId, accountNumber, iban, defaultType]
+      );
+      const bankAccountId = Number(bankRes.insertId);
+
+      const initialCurrencies = Array.from(new Set([preferredCurrency, 'USD', 'EUR', 'GBP']));
+      for (const curr of initialCurrencies) {
+        const [availRes]: any = await conn.query(
+          `INSERT INTO ledger_accounts (code, name, account_class, currency, owner_user_id, allow_negative, balance)
+           VALUES (?, ?, 'LIABILITY', ?, ?, 0, 0.0000)`,
+          [
+            `CUST_${userId}_BA${bankAccountId}_${curr}_AVAIL`,
+            `Customer ${userId} Acct ${accountNumber} Available ${curr}`,
+            curr,
+            userId,
+          ]
+        );
+        const [pendRes]: any = await conn.query(
+          `INSERT INTO ledger_accounts (code, name, account_class, currency, owner_user_id, allow_negative, balance)
+           VALUES (?, ?, 'LIABILITY', ?, ?, 0, 0.0000)`,
+          [
+            `CUST_${userId}_BA${bankAccountId}_${curr}_PEND`,
+            `Customer ${userId} Acct ${accountNumber} Pending ${curr}`,
+            curr,
+            userId,
+          ]
+        );
+        await conn.query(
+          `INSERT INTO currency_accounts (uuid, bank_account_id, user_id, currency, available_ledger_account_id, pending_ledger_account_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [crypto.randomUUID(), bankAccountId, userId, curr, availRes.insertId, pendRes.insertId]
+        );
+      }
+
+      const [rows]: any = await conn.query(
+        `SELECT id, uuid, account_number, iban, bic_swift, account_type, status, daily_transfer_limit, created_at
+         FROM bank_accounts WHERE id = ? LIMIT 1`,
+        [bankAccountId]
+      );
+      return rows[0];
+    });
+
+    res.status(201).json({ bankAccount: created });
+  } catch (err) {
+    next(err);
+  }
+});
+
 userRouter.get('/dashboard', async (req, res, next) => {
   try {
     const pool = getPool();

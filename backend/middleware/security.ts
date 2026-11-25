@@ -3,16 +3,33 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { env } from '../config/env.js';
 
+const frameAncestors = process.env.CSP_FRAME_ANCESTORS
+  ? process.env.CSP_FRAME_ANCESTORS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  : [
+      "'self'",
+      'https://aistudio.google.com',
+      'https://*.google.com',
+      'https://*.googleusercontent.com',
+      'https://*.usercontent.goog',
+      'https://*.run.app',
+    ];
+
 export const securityHeaders = helmet({
-  frameguard: false, // Allow embedding inside AI Studio / reverse-proxy frames when needed
+  frameguard: false, // Controlled via CSP frame-ancestors (configurable via CSP_FRAME_ANCESTORS)
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: env.isProduction ? ["'self'", "'unsafe-inline'"] : ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:'],
-      connectSrc: ["'self'"],
+      connectSrc: env.isProduction ? ["'self'"] : ["'self'", 'ws:', 'wss:'],
+      frameAncestors,
+      upgradeInsecureRequests: env.isProduction ? [] : null,
     },
   },
 });

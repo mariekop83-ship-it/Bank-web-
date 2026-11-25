@@ -91,6 +91,12 @@ export function AdminDashboard({
       setDbError('');
       try {
         const boot = await apiRequest('/api/admin/bootstrap-status', { authScope: 'none' });
+        if (boot.databaseConfigured === false) {
+          setDbError(
+            'External MySQL database is not configured. Set MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in your environment.'
+          );
+          return;
+        }
         setNeedsBootstrap(Boolean(boot.needsBootstrap));
         if (!boot.needsBootstrap && getAdminToken()) {
           const me = await apiRequest('/api/admin/auth/me', { authScope: 'admin' });
