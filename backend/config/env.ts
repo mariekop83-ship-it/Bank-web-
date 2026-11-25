@@ -7,6 +7,65 @@ const runtimeSessionSecret = crypto.randomBytes(32).toString('hex');
 const runtimeJwtSecret = crypto.randomBytes(32).toString('hex');
 const runtimeEncryptionKey = crypto.randomBytes(32).toString('hex');
 
+function resolveMysqlConfig() {
+  const rawUrl = (process.env.MYSQL_URL || process.env.DATABASE_URL || '').trim();
+  let host = process.env.MYSQL_HOST || '';
+  let port = Number(process.env.MYSQL_PORT || 3306);
+  let user = process.env.MYSQL_USER || '';
+  let password = process.env.MYSQL_PASSWORD || '';
+  let database = process.env.MYSQL_DATABASE || '';
+  let urlRequestsSsl = false;
+
+  if (rawUrl && rawUrl.startsWith('mysql')) {
+    try {
+      const parsed = new URL(rawUrl);
+      host = host || parsed.hostname;
+      port = process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : Number(parsed.port || 3306);
+      user = user || decodeURIComponent(parsed.username || '');
+      password = password || decodeURIComponent(parsed.password || '');
+      database = database || decodeURIComponent(parsed.pathname.replace(/^\//, '') || '');
+      const sslMode = (parsed.searchParams.get('ssl-mode') || parsed.searchParams.get('sslmode') || '').toUpperCase();
+      const sslParam = (parsed.searchParams.get('ssl') || '').toLowerCase();
+      urlRequestsSsl =
+        sslParam === 'true' ||
+        sslParam === '1' ||
+        sslMode === 'REQUIRED' ||
+        sslMode === 'VERIFY_CA' ||
+        sslMode === 'VERIFY_IDENTITY';
+    } catch {
+      // Ignore malformed URL; fallback to individual MYSQL_* env vars
+    }
+  }
+
+  const isLocalHost = !host || host === 'localhost' || host === '127.0.0.1';
+  const ssl =
+    process.env.MYSQL_SSL === 'true'
+      ? true
+      : process.env.MYSQL_SSL === 'false'
+        ? false
+        : Boolean(rawUrl && (urlRequestsSsl || !isLocalHost));
+
+  const sslCa = process.env.MYSQL_SSL_CA || '';
+  const sslRejectUnauthorized =
+    process.env.MYSQL_SSL_REJECT_UNAUTHORIZED === 'true'
+      ? true
+      : process.env.MYSQL_SSL_REJECT_UNAUTHORIZED === 'false'
+        ? false
+        : Boolean(sslCa);
+
+  return {
+    host,
+    port,
+    user,
+    password,
+    database,
+    ssl,
+    sslRejectUnauthorized,
+    sslCa,
+    connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+  };
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
@@ -21,17 +80,7 @@ export const env = {
     domain: process.env.BRAND_DOMAIN || 'meridianbank.example',
   },
 
-  mysql: {
-    host: process.env.MYSQL_HOST || '',
-    port: Number(process.env.MYSQL_PORT || 3306),
-    user: process.env.MYSQL_USER || '',
-    password: process.env.MYSQL_PASSWORD || '',
-    database: process.env.MYSQL_DATABASE || '',
-    ssl: process.env.MYSQL_SSL === 'true',
-    sslRejectUnauthorized: process.env.MYSQL_SSL_REJECT_UNAUTHORIZED !== 'false',
-    sslCa: process.env.MYSQL_SSL_CA || '',
-    connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
-  },
+  mysql: resolveMysqlConfig(),
 
   security: {
     sessionSecret: process.env.SESSION_SECRET || runtimeSessionSecret,

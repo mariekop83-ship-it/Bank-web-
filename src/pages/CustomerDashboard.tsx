@@ -1415,7 +1415,7 @@ export function CustomerDashboard({
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
                           <th className="py-2 pr-3">Reference</th>
-                          <th className="py-2 pr-3">Recipient</th>
+                          <th className="py-2 pr-3">Counterparty</th>
                           <th className="py-2 pr-3">Bank</th>
                           <th className="py-2 pr-3">Status</th>
                           <th className="py-2 pr-3 text-right">Amount</th>
@@ -1423,31 +1423,47 @@ export function CustomerDashboard({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {transfers.map((t) => (
-                          <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                            <td className="py-2.5 pr-3 font-mono">{t.reference}</td>
-                            <td className="py-2.5 pr-3">
-                              <p className="font-medium">{t.recipient_name}</p>
-                              <p className="font-mono text-[11px] text-slate-500">{t.recipient_account_number}</p>
-                            </td>
-                            <td className="py-2.5 pr-3">{t.recipient_bank}</td>
-                            <td className="py-2.5 pr-3"><StatusText status={t.status} /></td>
-                            <td className="py-2.5 pr-3 text-right font-mono font-semibold">
-                              {formatMoney(t.amount, t.currency, hideBalances)}
-                            </td>
-                            <td className="py-2.5 text-right">
-                              {t.ledger_transaction_id && (
-                                <button
-                                  type="button"
-                                  onClick={() => openTransactionReceipt(Number(t.ledger_transaction_id))}
-                                  className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-600 text-blue-700 dark:text-blue-400 font-medium cursor-pointer"
-                                >
-                                  Receipt
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {transfers.map((t) => {
+                          const isIncoming = t.direction === 'INCOMING';
+                          return (
+                            <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                              <td className="py-2.5 pr-3 font-mono">{t.reference}</td>
+                              <td className="py-2.5 pr-3">
+                                <p className="font-medium">
+                                  {isIncoming
+                                    ? `From ${t.sender_name || 'Platform Sender'}`
+                                    : `To ${t.recipient_name}`}
+                                </p>
+                                <p className="font-mono text-[11px] text-slate-500">
+                                  {isIncoming
+                                    ? t.sender_account_number || 'Meridian Account'
+                                    : t.recipient_account_number}
+                                </p>
+                              </td>
+                              <td className="py-2.5 pr-3">{t.recipient_bank}</td>
+                              <td className="py-2.5 pr-3"><StatusText status={t.status} /></td>
+                              <td
+                                className={`py-2.5 pr-3 text-right font-mono font-semibold ${
+                                  isIncoming ? 'text-emerald-700 dark:text-emerald-400' : ''
+                                }`}
+                              >
+                                {isIncoming ? '+' : '-'}
+                                {formatMoney(t.amount, t.currency, hideBalances)}
+                              </td>
+                              <td className="py-2.5 text-right">
+                                {t.ledger_transaction_id && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openTransactionReceipt(Number(t.ledger_transaction_id))}
+                                    className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:border-blue-600 text-blue-700 dark:text-blue-400 font-medium cursor-pointer"
+                                  >
+                                    Receipt
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

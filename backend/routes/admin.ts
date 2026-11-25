@@ -10,6 +10,8 @@ import {
   recordAdminAuditLog,
 } from '../services/adminService.js';
 import {
+  adminCreditCustomerWallet,
+  adminDebitCustomerWallet,
   approveAndSettleWithdrawal,
   rejectWithdrawalAndReleaseHold,
   settleVerifiedDeposit,
@@ -297,14 +299,14 @@ adminRouter.post('/kyc/:userId/review', requirePermission('kyc.review'), async (
   }
 });
 
-// Accounts Explorer
+// Accounts Explorer & Direct Settlement Controls
 adminRouter.get('/accounts', requirePermission('accounts.read'), async (_req, res, next) => {
   try {
     const pool = getPool();
     const [accounts]: any = await pool.query(
-      `SELECT ca.id, ca.currency, ca.available_balance, ca.pending_balance, ca.ledger_balance, ca.status,
+      `SELECT ca.id, ca.user_id, ca.currency, ca.available_balance, ca.pending_balance, ca.ledger_balance, ca.status,
               ba.account_number, ba.iban, ba.status AS bank_status,
-              u.email, p.first_name, p.last_name
+              u.email, u.status AS user_status, p.first_name, p.last_name
        FROM currency_accounts ca
        JOIN bank_accounts ba ON ba.id = ca.bank_account_id
        JOIN users u ON u.id = ca.user_id
@@ -312,6 +314,86 @@ adminRouter.get('/accounts', requirePermission('accounts.read'), async (_req, re
        ORDER BY ca.id DESC LIMIT 200`
     );
     res.json({ accounts });
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/accounts/:id/credit', requirePermission('deposits.reconcile'), async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        amount: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Enter a valid positive amount.'),
+        referenceNote: z.string().min(2).max(120),
+        reason: z.string().min(3).max(500),
+        idempotencyKey: z.string().min(8).max(128),
+      })
+      .parse(req.body);
+
+    const result = await adminCreditCustomerWallet({
+      currencyAccountId: Number(req.params.id),
+      adminUserId: req.admin!.id,
+      amount: data.amount,
+      referenceNote: data.referenceNote,
+      reason: data.reason,
+      idempotencyKey: data.idempotencyKey,
+    });
+
+    await recordAdminAuditLog({
+      adminUserId: req.admin!.id,
+      action: 'ADMIN_WALLET_CREDITED',
+      targetType: 'currency_accounts',
+      targetId: String(req.params.id),
+      reason: data.reason,
+      details: {
+        amount: data.amount,
+        reference: result.reference,
+        referenceNote: data.referenceNote,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/accounts/:id/debit', requirePermission('transactions.reverse'), async (req, res, next) => {
+  try {
+    const data = z
+      .object({
+        amount: z.string().regex(/^\d+(\.\d{1,4})?$/, 'Enter a valid positive amount.'),
+        referenceNote: z.string().min(2).max(120),
+        reason: z.string().min(3).max(500),
+        idempotencyKey: z.string().min(8).max(128),
+      })
+      .parse(req.body);
+
+    const result = await adminDebitCustomerWallet({
+      currencyAccountId: Number(req.params.id),
+      adminUserId: req.admin!.id,
+      amount: data.amount,
+      referenceNote: data.referenceNote,
+      reason: data.reason,
+      idempotencyKey: data.idempotencyKey,
+    });
+
+    await recordAdminAuditLog({
+      adminUserId: req.admin!.id,
+      action: 'ADMIN_WALLET_DEBITED',
+      targetType: 'currency_accounts',
+      targetId: String(req.params.id),
+      reason: data.reason,
+      details: {
+        amount: data.amount,
+        reference: result.reference,
+        referenceNote: data.referenceNote,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json(result);
   } catch (err) {
     next(err);
   }

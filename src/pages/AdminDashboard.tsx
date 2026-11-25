@@ -85,6 +85,15 @@ export function AdminDashboard({
   const [actionReason, setActionReason] = useState('');
   const [actionProviderRef, setActionProviderRef] = useState('');
 
+  // Direct wallet credit/debit modal state
+  const [walletModal, setWalletModal] = useState<{
+    mode: 'credit' | 'debit';
+    account: any;
+  } | null>(null);
+  const [walletAmount, setWalletAmount] = useState('');
+  const [walletRefNote, setWalletRefNote] = useState('BANK-SETTLEMENT');
+  const [walletReason, setWalletReason] = useState('');
+
   useEffect(() => {
     const init = async () => {
       setLoading(true);
@@ -724,9 +733,14 @@ export function AdminDashboard({
           {/* ACCOUNTS & WALLETS */}
           {tab === 'accounts' && (
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
-              <h2 className="text-base font-semibold pb-3 border-b border-slate-100 dark:border-slate-800">
-                Customer Accounts & Currency Wallets
-              </h2>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <h2 className="text-base font-semibold">Customer Accounts & Currency Wallets</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Credit or adjust any customer currency wallet via audited double-entry ledger entries.
+                  </p>
+                </div>
+              </div>
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
@@ -736,7 +750,8 @@ export function AdminDashboard({
                       <th className="py-2 pr-3">Currency</th>
                       <th className="py-2 pr-3 text-right">Available</th>
                       <th className="py-2 pr-3 text-right">Pending</th>
-                      <th className="py-2 text-right">Ledger</th>
+                      <th className="py-2 pr-3 text-right">Ledger</th>
+                      <th className="py-2 text-right">Controls</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -747,7 +762,33 @@ export function AdminDashboard({
                         <td className="py-2.5 pr-3 font-mono font-semibold">{a.currency}</td>
                         <td className="py-2.5 pr-3 text-right font-mono">{formatMoney(a.available_balance, a.currency)}</td>
                         <td className="py-2.5 pr-3 text-right font-mono">{formatMoney(a.pending_balance, a.currency)}</td>
-                        <td className="py-2.5 text-right font-mono font-semibold">{formatMoney(a.ledger_balance, a.currency)}</td>
+                        <td className="py-2.5 pr-3 text-right font-mono font-semibold">{formatMoney(a.ledger_balance, a.currency)}</td>
+                        <td className="py-2.5 text-right space-x-1.5 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWalletAmount('');
+                              setWalletRefNote('ADMIN-SETTLEMENT');
+                              setWalletReason('');
+                              setWalletModal({ mode: 'credit', account: a });
+                            }}
+                            className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-medium cursor-pointer"
+                          >
+                            + Credit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWalletAmount('');
+                              setWalletRefNote('ADMIN-ADJUSTMENT');
+                              setWalletReason('');
+                              setWalletModal({ mode: 'debit', account: a });
+                            }}
+                            className="px-2.5 py-1 rounded border border-rose-300 text-rose-700 dark:text-rose-400 font-medium cursor-pointer"
+                          >
+                            - Debit
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1200,6 +1241,111 @@ export function AdminDashboard({
                 className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 text-white cursor-pointer"
               >
                 {submitting ? 'Processing...' : 'Confirm & Record Audit'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {/* Direct Wallet Credit / Debit Modal */}
+      {walletModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setSubmitting(true);
+              try {
+                const endpoint =
+                  walletModal.mode === 'credit'
+                    ? `/api/admin/accounts/${walletModal.account.id}/credit`
+                    : `/api/admin/accounts/${walletModal.account.id}/debit`;
+                const res = await apiRequest(endpoint, {
+                  method: 'POST',
+                  authScope: 'admin',
+                  body: {
+                    amount: walletAmount,
+                    referenceNote: walletRefNote,
+                    reason: walletReason,
+                    idempotencyKey: generateIdempotencyKey(`adm_${walletModal.mode}`),
+                  },
+                });
+                setWalletModal(null);
+                setToast({
+                  type: 'success',
+                  message: `Wallet ${walletModal.mode === 'credit' ? 'credited' : 'debited'} successfully (Ref: ${res.reference}).`,
+                });
+                await loadWorkspaceTab('accounts');
+              } catch (err) {
+                setToast({
+                  type: 'error',
+                  message: err instanceof ApiError ? err.message : 'Wallet adjustment failed.',
+                });
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            className="w-full max-w-md rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4"
+          >
+            <div>
+              <h3 className="text-base font-semibold">
+                {walletModal.mode === 'credit' ? 'Credit Customer Wallet' : 'Debit Customer Wallet'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {walletModal.account.first_name} {walletModal.account.last_name} ·{' '}
+                <span className="font-mono">{walletModal.account.account_number}</span> ({walletModal.account.currency})
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">
+                Amount ({walletModal.account.currency})
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="1000.00"
+                value={walletAmount}
+                onChange={(e) => setWalletAmount(e.target.value)}
+                className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Settlement / Reference Note</label>
+              <input
+                type="text"
+                required
+                minLength={2}
+                value={walletRefNote}
+                onChange={(e) => setWalletRefNote(e.target.value)}
+                className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Mandatory Audit Reason</label>
+              <textarea
+                required
+                minLength={3}
+                rows={3}
+                placeholder="e.g. Verified offline wire settlement / opening balance funding"
+                value={walletReason}
+                onChange={(e) => setWalletReason(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setWalletModal(null)}
+                className="px-4 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg text-white cursor-pointer ${
+                  walletModal.mode === 'credit' ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-rose-700 hover:bg-rose-800'
+                }`}
+              >
+                {submitting ? 'Posting Ledger...' : walletModal.mode === 'credit' ? 'Post Credit' : 'Post Debit'}
               </button>
             </div>
           </form>

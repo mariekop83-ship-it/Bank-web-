@@ -8,7 +8,15 @@ import { applyExchangeRate, calculateFeeScaled, formatScaledToDecimal, parseDeci
 import { decryptBuffer, encryptBuffer, sha256Hex, verifyHmacSignature } from '../backend/utils/crypto.js';
 import { generateTotpCode, verifyTotpCode } from '../backend/utils/totp.js';
 import { postLedgerTransaction, reverseLedgerTransaction, LedgerError } from '../backend/services/ledgerService.js';
-import { createDepositRequest, settleVerifiedDeposit, createWithdrawalRequest, approveAndSettleWithdrawal, rejectWithdrawalAndReleaseHold } from '../backend/services/depositWithdrawalService.js';
+import {
+  adminCreditCustomerWallet,
+  adminDebitCustomerWallet,
+  approveAndSettleWithdrawal,
+  createDepositRequest,
+  createWithdrawalRequest,
+  rejectWithdrawalAndReleaseHold,
+  settleVerifiedDeposit,
+} from '../backend/services/depositWithdrawalService.js';
 import { executeTransfer } from '../backend/services/transferService.js';
 import { registerCustomer, loginCustomer } from '../backend/services/authService.js';
 import { uploadEncryptedKycDocument, getDecryptedKycDocument, reviewCustomerKyc } from '../backend/services/kycService.js';
@@ -392,21 +400,41 @@ class MockMySqlDatabase {
     }
     if (q.startsWith('INSERT INTO deposits')) {
       const id = this.nextId();
-      this.deposits.push({
-        id,
-        uuid: params[0],
-        reference: params[1],
-        idempotency_key: params[2],
-        user_id: Number(params[3]),
-        currency_account_id: Number(params[4]),
-        method: params[5],
-        amount: params[6],
-        fee_amount: '0.0000',
-        currency: params[7],
-        status: 'PENDING',
-        provider_name: params[8],
-        provider_reference: params[9],
-      });
+      if (q.includes("'admin_settlement'")) {
+        this.deposits.push({
+          id,
+          uuid: params[0],
+          reference: params[1],
+          idempotency_key: params[2],
+          user_id: Number(params[3]),
+          currency_account_id: Number(params[4]),
+          method: 'BANK_TRANSFER',
+          amount: params[5],
+          fee_amount: '0.0000',
+          currency: params[6],
+          status: 'SUCCESSFUL',
+          provider_name: 'admin_settlement',
+          provider_reference: params[7],
+          ledger_transaction_id: params[8],
+          verified_by_admin_id: params[9],
+        });
+      } else {
+        this.deposits.push({
+          id,
+          uuid: params[0],
+          reference: params[1],
+          idempotency_key: params[2],
+          user_id: Number(params[3]),
+          currency_account_id: Number(params[4]),
+          method: params[5],
+          amount: params[6],
+          fee_amount: '0.0000',
+          currency: params[7],
+          status: 'PENDING',
+          provider_name: params[8],
+          provider_reference: params[9],
+        });
+      }
       return [{ insertId: id }, []];
     }
     if (q.startsWith('SELECT * FROM deposits WHERE reference = ?')) {
@@ -415,10 +443,13 @@ class MockMySqlDatabase {
     if (q.startsWith('SELECT * FROM deposits WHERE id = ?')) {
       return [this.deposits.filter((d) => d.id === Number(params[0])), []];
     }
-    if (q.startsWith('SELECT ca.*, u.email FROM currency_accounts ca JOIN users u')) {
+    if (q.includes('FROM currency_accounts ca JOIN users u ON u.id = ca.user_id WHERE ca.id = ?')) {
       const ca = this.currency_accounts.find((c) => c.id === Number(params[0]));
       const u = this.users.find((x) => x.id === ca?.user_id);
-      return ca ? [[{ ...ca, email: u?.email }], []] : [[], []];
+      return ca ? [[{ ...ca, email: u?.email, user_status: u?.status }], []] : [[], []];
+    }
+    if (q.startsWith('SELECT id, currency, available_balance, pending_balance, ledger_balance FROM currency_accounts WHERE id = ?')) {
+      return [this.currency_accounts.filter((c) => c.id === Number(params[0])), []];
     }
     if (q.startsWith('UPDATE deposits SET status = \'SUCCESSFUL\'')) {
       const d = this.deposits.find((x) => x.id === Number(params[3]));
@@ -964,4 +995,66 @@ describe('Meridian International Bank Core Security & Financial Engine', () => {
     assert.equal(resp.status, 403);
     server.close();
   });
+
+  it('allows authorized admins to credit and debit customer wallets safely without permitting overdrafts', async () => {
+    const cust = await registerCustomer(
+      {
+        firstName: 'David',
+        lastName: 'Tennant',
+        email: 'david@example.com',
+        phone: '+442079460111',
+        country: 'GB',
+        dateOfBirth: '1989-04-18',
+        addressLine1: '50 Regent St',
+        city: 'London',
+        password: 'StrongPassword123',
+      },
+      {}
+    );
+    const usdWallet = db.currency_accounts.find((w) => w.user_id === cust.userId && w.currency === 'USD');
+    assert.equal(usdWallet.available_balance, '0.0000');
+
+    // Admin direct credit
+    const creditRes = await adminCreditCustomerWallet({
+      currencyAccountId: usdWallet.id,
+      adminUserId: 1,
+      amount: '1250.50',
+      referenceNote: 'WIRE-SETTLE-2026',
+      reason: 'Customer bank settlement confirmed',
+      idempotencyKey: 'admin_cred_1',
+    });
+    assert.ok(creditRes.reference.startsWith('CRD'));
+    assert.equal(usdWallet.available_balance, '1250.5000');
+    assert.equal(usdWallet.ledger_balance, '1250.5000');
+    assert.ok(db.deposits.some((d) => d.reference === creditRes.reference && d.status === 'SUCCESSFUL'));
+
+    // Admin direct debit
+    const debitRes = await adminDebitCustomerWallet({
+      currencyAccountId: usdWallet.id,
+      adminUserId: 1,
+      amount: '250.50',
+      referenceNote: 'ADJ-FEE-2026',
+      reason: 'Approved account chargeback adjustment',
+      idempotencyKey: 'admin_deb_1',
+    });
+    assert.ok(debitRes.reference.startsWith('ADJ'));
+    assert.equal(usdWallet.available_balance, '1000.0000');
+    assert.equal(usdWallet.ledger_balance, '1000.0000');
+
+    // Over-debit must be blocked by ledger invariant
+    await assert.rejects(
+      () =>
+        adminDebitCustomerWallet({
+          currencyAccountId: usdWallet.id,
+          adminUserId: 1,
+          amount: '1500.00',
+          referenceNote: 'ADJ-OVER-1',
+          reason: 'Should fail insufficient funds',
+          idempotencyKey: 'admin_deb_over_1',
+        }),
+      /Insufficient funds/
+    );
+    assert.equal(usdWallet.available_balance, '1000.0000');
+  });
 });
+

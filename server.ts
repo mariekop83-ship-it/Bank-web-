@@ -2,8 +2,9 @@ import cookieParser from 'cookie-parser';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { closePool } from './backend/config/database.js';
+import { closePool, isDatabaseConfigured } from './backend/config/database.js';
 import { env } from './backend/config/env.js';
+import { runMigrations } from './database/migrate.js';
 import { errorHandler } from './backend/middleware/errorHandler.js';
 import { csrfOriginCheck, generalApiLimiter, securityHeaders } from './backend/middleware/security.js';
 import { adminRouter } from './backend/routes/admin.js';
@@ -64,6 +65,17 @@ export function createApp() {
 }
 
 async function startServer() {
+  if (isDatabaseConfigured()) {
+    try {
+      const applied = await runMigrations();
+      if (applied.length > 0) {
+        console.log(`Database migrations applied: ${applied.join(', ')}`);
+      }
+    } catch (err) {
+      console.error('Startup migration check warning:', err instanceof Error ? err.message : err);
+    }
+  }
+
   const app = createApp();
 
   if (!env.isProduction) {

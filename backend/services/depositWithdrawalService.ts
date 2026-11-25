@@ -430,3 +430,185 @@ export async function rejectWithdrawalAndReleaseHold(params: {
     return updated[0];
   });
 }
+
+/**
+ * Authorized Finance / Super Admin direct credit to a customer's currency wallet
+ * via balanced double-entry ledger transaction and deposit audit record.
+ */
+export async function adminCreditCustomerWallet(params: {
+  currencyAccountId: number;
+  adminUserId: number;
+  amount: string;
+  referenceNote: string;
+  reason: string;
+  idempotencyKey: string;
+}) {
+  const amountScaled = parseDecimalToScaled(params.amount);
+  assertPositiveScaled(amountScaled, 'Credit amount');
+
+  return await withTransaction(async (conn) => {
+    const [wallets]: any = await conn.query(
+      `SELECT ca.*, u.email, u.status AS user_status
+       FROM currency_accounts ca
+       JOIN users u ON u.id = ca.user_id
+       WHERE ca.id = ? FOR UPDATE`,
+      [params.currencyAccountId]
+    );
+    if (wallets.length === 0) throw new LedgerError('Customer currency wallet not found.', 404);
+    const wallet = wallets[0];
+
+    const reference = generateReference('CRD');
+    const amountStr = formatScaledToDecimal(amountScaled);
+    const clearingId = await getSystemLedgerAccount(conn, `SYS_CLEARING_${wallet.currency}`);
+
+    const ltx = await postLedgerTransaction(conn, {
+      reference,
+      idempotencyKey: params.idempotencyKey,
+      transactionType: 'DEPOSIT',
+      status: 'SUCCESSFUL',
+      currency: wallet.currency,
+      totalAmount: amountStr,
+      feeAmount: '0.0000',
+      description: `Admin credit (${params.referenceNote}): ${params.reason}`.slice(0, 255),
+      initiatedByUserId: Number(wallet.user_id),
+      entries: [
+        {
+          ledgerAccountId: clearingId,
+          entryType: 'DEBIT',
+          amount: amountStr,
+          currency: wallet.currency,
+          memo: `Admin settlement clearing (${params.referenceNote})`,
+        },
+        {
+          ledgerAccountId: Number(wallet.available_ledger_account_id),
+          entryType: 'CREDIT',
+          amount: amountStr,
+          currency: wallet.currency,
+          memo: `Admin wallet credit (${reference})`,
+        },
+      ],
+    });
+
+    await conn.query(
+      `INSERT INTO deposits
+        (uuid, reference, idempotency_key, user_id, currency_account_id, method, amount, fee_amount, currency, status, provider_name, provider_reference, ledger_transaction_id, verified_by_admin_id, verified_at)
+       VALUES (?, ?, ?, ?, ?, 'BANK_TRANSFER', ?, '0.0000', ?, 'SUCCESSFUL', 'admin_settlement', ?, ?, ?, UTC_TIMESTAMP(3))`,
+      [
+        crypto.randomUUID(),
+        reference,
+        `dep_${params.idempotencyKey}`,
+        wallet.user_id,
+        wallet.id,
+        amountStr,
+        wallet.currency,
+        params.referenceNote.slice(0, 128),
+        ltx.transactionId,
+        params.adminUserId,
+      ]
+    );
+
+    await createNotification(
+      {
+        userId: Number(wallet.user_id),
+        category: 'DEPOSIT',
+        title: 'Account credited',
+        message: `Your ${wallet.currency} wallet was credited with ${amountStr} ${wallet.currency} (Ref: ${reference}).`,
+        emailTo: wallet.email,
+        sendEmail: true,
+      },
+      conn
+    );
+
+    const [updatedWallet]: any = await conn.query(
+      `SELECT id, currency, available_balance, pending_balance, ledger_balance FROM currency_accounts WHERE id = ? LIMIT 1`,
+      [wallet.id]
+    );
+    return {
+      reference,
+      ledgerTransactionId: ltx.transactionId,
+      wallet: updatedWallet[0],
+    };
+  });
+}
+
+/**
+ * Authorized Finance / Super Admin controlled debit from a customer's available wallet
+ * via balanced double-entry ledger transaction (strictly blocks negative balances).
+ */
+export async function adminDebitCustomerWallet(params: {
+  currencyAccountId: number;
+  adminUserId: number;
+  amount: string;
+  referenceNote: string;
+  reason: string;
+  idempotencyKey: string;
+}) {
+  const amountScaled = parseDecimalToScaled(params.amount);
+  assertPositiveScaled(amountScaled, 'Debit amount');
+
+  return await withTransaction(async (conn) => {
+    const [wallets]: any = await conn.query(
+      `SELECT ca.*, u.email
+       FROM currency_accounts ca
+       JOIN users u ON u.id = ca.user_id
+       WHERE ca.id = ? FOR UPDATE`,
+      [params.currencyAccountId]
+    );
+    if (wallets.length === 0) throw new LedgerError('Customer currency wallet not found.', 404);
+    const wallet = wallets[0];
+
+    const reference = generateReference('ADJ');
+    const amountStr = formatScaledToDecimal(amountScaled);
+    const clearingId = await getSystemLedgerAccount(conn, `SYS_CLEARING_${wallet.currency}`);
+
+    const ltx = await postLedgerTransaction(conn, {
+      reference,
+      idempotencyKey: params.idempotencyKey,
+      transactionType: 'WITHDRAWAL',
+      status: 'SUCCESSFUL',
+      currency: wallet.currency,
+      totalAmount: amountStr,
+      feeAmount: '0.0000',
+      description: `Admin debit adjustment (${params.referenceNote}): ${params.reason}`.slice(0, 255),
+      initiatedByUserId: Number(wallet.user_id),
+      entries: [
+        {
+          ledgerAccountId: Number(wallet.available_ledger_account_id),
+          entryType: 'DEBIT',
+          amount: amountStr,
+          currency: wallet.currency,
+          memo: `Admin wallet adjustment (${reference})`,
+        },
+        {
+          ledgerAccountId: clearingId,
+          entryType: 'CREDIT',
+          amount: amountStr,
+          currency: wallet.currency,
+          memo: `Admin adjustment clearing (${params.referenceNote})`,
+        },
+      ],
+    });
+
+    await createNotification(
+      {
+        userId: Number(wallet.user_id),
+        category: 'ACCOUNT_RESTRICTION',
+        title: 'Account debit adjustment',
+        message: `${amountStr} ${wallet.currency} was debited from your ${wallet.currency} wallet (Ref: ${reference}). Reason: ${params.reason}`,
+        emailTo: wallet.email,
+        sendEmail: true,
+      },
+      conn
+    );
+
+    const [updatedWallet]: any = await conn.query(
+      `SELECT id, currency, available_balance, pending_balance, ledger_balance FROM currency_accounts WHERE id = ? LIMIT 1`,
+      [wallet.id]
+    );
+    return {
+      reference,
+      ledgerTransactionId: ltx.transactionId,
+      wallet: updatedWallet[0],
+    };
+  });
+}

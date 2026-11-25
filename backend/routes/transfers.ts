@@ -103,14 +103,22 @@ transfersRouter.post('/fx-convert', financialRateLimiter, async (req, res, next)
 transfersRouter.get('/', async (req, res, next) => {
   try {
     const pool = getPool();
+    const userId = req.customer!.id;
     const [rows]: any = await pool.query(
-      `SELECT id, uuid, reference, transfer_type, recipient_name, recipient_account_number, recipient_bank,
-              recipient_country, recipient_currency, amount, fee_amount, currency, description, status,
-              ledger_transaction_id, partner_provider, partner_reference, failure_reason, created_at
-       FROM transfers
-       WHERE sender_user_id = ? OR recipient_user_id = ?
-       ORDER BY created_at DESC LIMIT 100`,
-      [req.customer!.id, req.customer!.id]
+      `SELECT t.id, t.uuid, t.reference, t.transfer_type, t.sender_user_id, t.recipient_user_id,
+              t.recipient_name, t.recipient_account_number, t.recipient_bank,
+              t.recipient_country, t.recipient_currency, t.amount, t.fee_amount, t.currency, t.description, t.status,
+              t.ledger_transaction_id, t.partner_provider, t.partner_reference, t.failure_reason, t.created_at,
+              CONCAT(sp.first_name, ' ', sp.last_name) AS sender_name,
+              sba.account_number AS sender_account_number,
+              CASE WHEN t.recipient_user_id = ? AND t.sender_user_id <> ? THEN 'INCOMING' ELSE 'OUTGOING' END AS direction
+       FROM transfers t
+       LEFT JOIN user_profiles sp ON sp.user_id = t.sender_user_id
+       LEFT JOIN currency_accounts sca ON sca.id = t.sender_currency_account_id
+       LEFT JOIN bank_accounts sba ON sba.id = sca.bank_account_id
+       WHERE t.sender_user_id = ? OR t.recipient_user_id = ?
+       ORDER BY t.created_at DESC LIMIT 100`,
+      [userId, userId, userId, userId]
     );
     res.json({ transfers: rows });
   } catch (err) {
