@@ -4,7 +4,11 @@ import { apiRequest, ApiError, setCustomerToken } from '../utils/api';
 import { useRouter } from '../utils/router';
 import { AlertBanner } from '../components/ui';
 
-export function LoginPage({ onLoginSuccess }: { onLoginSuccess: (user: any) => void }) {
+export function LoginPage({
+  onLoginSuccess,
+}: {
+  onLoginSuccess: (user: any) => void;
+}) {
   const { navigate } = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,7 +53,7 @@ export function LoginPage({ onLoginSuccess }: { onLoginSuccess: (user: any) => v
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8">
         <div className="flex items-center gap-2 text-xs font-medium text-blue-700 dark:text-blue-400">
           <Shield className="w-4 h-4" />
-          <span>Client Banking Portal</span>
+          <span>Customer Account</span>
         </div>
         <h1 className="mt-2 text-2xl font-display font-bold text-slate-900 dark:text-white">
           Sign in to your account
@@ -217,7 +221,7 @@ export function RegisterPage() {
             onClick={() => navigate('/login')}
             className="w-full px-4 py-2.5 text-sm font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white cursor-pointer"
           >
-            Proceed to Client Login
+            Proceed to Customer Account
           </button>
         </div>
       </div>
@@ -576,7 +580,7 @@ export function ForgotResetVerifyPage({ mode }: { mode: 'forgot' | 'reset' | 've
           onClick={() => navigate('/login')}
           className="text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
         >
-          Back to Client Login
+          Back to Customer Account
         </button>
       </div>
     </div>

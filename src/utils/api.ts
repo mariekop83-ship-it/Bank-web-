@@ -1,8 +1,33 @@
-let customerToken: string | null = null;
-let adminToken: string | null = null;
+const CUSTOMER_TOKEN_KEY = 'mb_customer_jwt';
+const ADMIN_TOKEN_KEY = 'mb_admin_jwt';
+
+function readSessionToken(key: string): string | null {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionToken(key: string, token: string | null): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (token) {
+      window.sessionStorage.setItem(key, token);
+    } else {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage errors in restricted contexts
+  }
+}
+
+let customerToken: string | null = readSessionToken(CUSTOMER_TOKEN_KEY);
+let adminToken: string | null = readSessionToken(ADMIN_TOKEN_KEY);
 
 export function setCustomerToken(token: string | null) {
   customerToken = token;
+  writeSessionToken(CUSTOMER_TOKEN_KEY, token);
 }
 
 export function getCustomerToken(): string | null {
@@ -11,6 +36,7 @@ export function getCustomerToken(): string | null {
 
 export function setAdminToken(token: string | null) {
   adminToken = token;
+  writeSessionToken(ADMIN_TOKEN_KEY, token);
 }
 
 export function getAdminToken(): string | null {

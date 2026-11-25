@@ -29,6 +29,7 @@ export interface CurrencyMeta {
 }
 
 export interface PublicAppConfig {
+  databaseConfigured?: boolean;
   brand: PublicBrandConfig;
   currencies: CurrencyMeta[];
   providers: Record<string, { name: string; mode: string; available: boolean; message: string }>;

@@ -611,8 +611,8 @@ export function CustomerDashboard({
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-6">
         <div className="max-w-lg w-full space-y-4">
-          <AlertBanner type="error" title="Dashboard Unavailable" message={error} />
-          <div className="flex gap-3">
+          <AlertBanner type="error" title="Account Unavailable" message={error} />
+          <div className="flex flex-wrap gap-3">
             <button type="button" onClick={loadDashboard} className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-700 text-white cursor-pointer">
               Retry
             </button>
@@ -695,41 +695,46 @@ export function CustomerDashboard({
         </div>
       </aside>
 
-      {/* Mobile Drawer */}
+      {/* Mobile Bottom Sheet Drawer */}
       {mobileMenu && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div className="w-72 bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 p-4 flex flex-col">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-              <span className="font-display font-bold">Meridian Bank</span>
-              <button type="button" onClick={() => setMobileMenu(false)} className="p-1.5 cursor-pointer">
-                <X className="w-5 h-5" />
+        <div className="no-print fixed inset-0 z-50 lg:hidden flex flex-col justify-end">
+          <div className="flex-1 bg-slate-950/50 backdrop-blur-[1px]" onClick={() => setMobileMenu(false)} />
+          <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-2xl p-5 pb-24 shadow-2xl max-h-[82vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="min-w-0">
+                <p className="font-display font-bold text-slate-900 dark:text-white">Customer Account</p>
+                <p className="text-xs text-slate-500 truncate">{customer?.first_name} {customer?.last_name} · {customer?.email}</p>
+              </div>
+              <button type="button" onClick={() => setMobileMenu(false)} aria-label="Close menu" className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer">
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <nav className="flex-1 py-4 space-y-1">
+            <nav className="grid grid-cols-2 gap-2">
               {navItems.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => switchTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer ${
-                    tab === item.id ? 'bg-blue-700 text-white' : 'text-slate-700 dark:text-slate-300'
+                  className={`flex items-center gap-2.5 px-3 py-2.5 text-xs font-medium rounded-xl border transition-colors cursor-pointer ${
+                    tab === item.id
+                      ? 'border-blue-700 bg-blue-700 text-white'
+                      : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60'
                   }`}
                 >
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span className="truncate">{item.label}</span>
                 </button>
               ))}
             </nav>
             <button
               type="button"
               onClick={handleLogout}
-              className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out</span>
             </button>
           </div>
-          <div className="flex-1 bg-black/50" onClick={() => setMobileMenu(false)} />
         </div>
       )}
 
@@ -737,16 +742,8 @@ export function CustomerDashboard({
       <div className="flex-1 flex flex-col min-w-0">
         <header className="no-print h-16 px-4 sm:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setMobileMenu(true)}
-              className="lg:hidden p-2 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer"
-              aria-label="Open menu"
-            >
-              <Menu className="w-4 h-4" />
-            </button>
             <div className="text-sm font-medium text-slate-600 dark:text-slate-400 truncate">
-              Client Portal <span aria-hidden="true">/</span>{' '}
+              Customer Account <span aria-hidden="true">/</span>{' '}
               <span className="text-slate-900 dark:text-white font-semibold">
                 {navItems.find((i) => i.id === tab)?.label}
               </span>
@@ -781,8 +778,15 @@ export function CustomerDashboard({
                     <button
                       type="button"
                       onClick={async () => {
-                        await apiRequest('/api/notifications/read-all', { method: 'PUT' });
-                        await loadDashboard();
+                        try {
+                          await apiRequest('/api/notifications/read-all', { method: 'PUT' });
+                          await loadDashboard();
+                        } catch (err) {
+                          setToast({
+                            type: 'error',
+                            message: err instanceof ApiError ? err.message : 'Unable to mark notifications read.',
+                          });
+                        }
                       }}
                       className="text-xs text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
                     >
@@ -812,7 +816,8 @@ export function CustomerDashboard({
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
+        <main className="flex-1 p-4 pb-24 sm:p-8 sm:pb-24 lg:pb-8 max-w-7xl w-full mx-auto space-y-6">
+
           {toast && (
             <AlertBanner
               type={toast.type}
@@ -1941,8 +1946,15 @@ export function CustomerDashboard({
                           <button
                             type="button"
                             onClick={async () => {
-                              await apiRequest(`/api/beneficiaries/${b.id}`, { method: 'DELETE' });
-                              await loadTabData('beneficiaries');
+                              try {
+                                await apiRequest(`/api/beneficiaries/${b.id}`, { method: 'DELETE' });
+                                await loadTabData('beneficiaries');
+                              } catch (err) {
+                                setToast({
+                                  type: 'error',
+                                  message: err instanceof ApiError ? err.message : 'Failed to remove beneficiary.',
+                                });
+                              }
                             }}
                             className="px-3 py-1.5 rounded border border-slate-200 dark:border-slate-700 text-rose-600 cursor-pointer"
                           >
@@ -1980,12 +1992,19 @@ export function CustomerDashboard({
                     type="button"
                     onClick={async () => {
                       if (!wallets[0]) return;
-                      const res = await apiRequest('/api/cards/request', {
-                        method: 'POST',
-                        body: { currencyAccountId: wallets[0].id, cardType: 'VIRTUAL' },
-                      });
-                      setToast({ type: 'info', message: res.message });
-                      await loadTabData('cards');
+                      try {
+                        const res = await apiRequest('/api/cards/request', {
+                          method: 'POST',
+                          body: { currencyAccountId: wallets[0].id, cardType: 'VIRTUAL' },
+                        });
+                        setToast({ type: 'info', message: res.message });
+                        await loadTabData('cards');
+                      } catch (err) {
+                        setToast({
+                          type: 'error',
+                          message: err instanceof ApiError ? err.message : 'Unable to request virtual card.',
+                        });
+                      }
                     }}
                     className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 text-white cursor-pointer"
                   >
@@ -1995,12 +2014,19 @@ export function CustomerDashboard({
                     type="button"
                     onClick={async () => {
                       if (!wallets[0]) return;
-                      const res = await apiRequest('/api/cards/request', {
-                        method: 'POST',
-                        body: { currencyAccountId: wallets[0].id, cardType: 'PHYSICAL' },
-                      });
-                      setToast({ type: 'info', message: res.message });
-                      await loadTabData('cards');
+                      try {
+                        const res = await apiRequest('/api/cards/request', {
+                          method: 'POST',
+                          body: { currencyAccountId: wallets[0].id, cardType: 'PHYSICAL' },
+                        });
+                        setToast({ type: 'info', message: res.message });
+                        await loadTabData('cards');
+                      } catch (err) {
+                        setToast({
+                          type: 'error',
+                          message: err instanceof ApiError ? err.message : 'Unable to request physical card.',
+                        });
+                      }
                     }}
                     className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
                   >
@@ -2036,8 +2062,15 @@ export function CustomerDashboard({
                         <button
                           type="button"
                           onClick={async () => {
-                            await apiRequest(`/api/cards/${card.id}/freeze`, { method: 'POST' });
-                            await loadTabData('cards');
+                            try {
+                              await apiRequest(`/api/cards/${card.id}/freeze`, { method: 'POST' });
+                              await loadTabData('cards');
+                            } catch (err) {
+                              setToast({
+                                type: 'error',
+                                message: err instanceof ApiError ? err.message : 'Unable to freeze card.',
+                              });
+                            }
                           }}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
                         >
@@ -2048,8 +2081,15 @@ export function CustomerDashboard({
                         <button
                           type="button"
                           onClick={async () => {
-                            await apiRequest(`/api/cards/${card.id}/unfreeze`, { method: 'POST' });
-                            await loadTabData('cards');
+                            try {
+                              await apiRequest(`/api/cards/${card.id}/unfreeze`, { method: 'POST' });
+                              await loadTabData('cards');
+                            } catch (err) {
+                              setToast({
+                                type: 'error',
+                                message: err instanceof ApiError ? err.message : 'Unable to unfreeze card.',
+                              });
+                            }
                           }}
                           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-700 text-white cursor-pointer"
                         >
@@ -2059,8 +2099,15 @@ export function CustomerDashboard({
                       <button
                         type="button"
                         onClick={async () => {
-                          await apiRequest(`/api/cards/${card.id}/replace`, { method: 'POST' });
-                          await loadTabData('cards');
+                          try {
+                            await apiRequest(`/api/cards/${card.id}/replace`, { method: 'POST' });
+                            await loadTabData('cards');
+                          } catch (err) {
+                            setToast({
+                              type: 'error',
+                              message: err instanceof ApiError ? err.message : 'Unable to request card replacement.',
+                            });
+                          }
                         }}
                         className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer"
                       >
@@ -2185,8 +2232,15 @@ export function CustomerDashboard({
                   <button
                     type="button"
                     onClick={async () => {
-                      const res = await apiRequest('/api/auth/2fa/setup', { method: 'POST' });
-                      setTwoFaSetup(res);
+                      try {
+                        const res = await apiRequest('/api/auth/2fa/setup', { method: 'POST' });
+                        setTwoFaSetup(res);
+                      } catch (err) {
+                        setToast({
+                          type: 'error',
+                          message: err instanceof ApiError ? err.message : 'Unable to start 2FA setup.',
+                        });
+                      }
                     }}
                     className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 text-white cursor-pointer"
                   >
@@ -2210,10 +2264,17 @@ export function CustomerDashboard({
                       <button
                         type="button"
                         onClick={async () => {
-                          await apiRequest('/api/auth/2fa/enable', { method: 'POST', body: { code: twoFaCode } });
-                          setTwoFaSetup(null);
-                          setToast({ type: 'success', message: 'Two-factor authentication enabled.' });
-                          await loadDashboard();
+                          try {
+                            await apiRequest('/api/auth/2fa/enable', { method: 'POST', body: { code: twoFaCode } });
+                            setTwoFaSetup(null);
+                            setToast({ type: 'success', message: 'Two-factor authentication enabled.' });
+                            await loadDashboard();
+                          } catch (err) {
+                            setToast({
+                              type: 'error',
+                              message: err instanceof ApiError ? err.message : 'Invalid 2FA verification code.',
+                            });
+                          }
                         }}
                         className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 text-white cursor-pointer"
                       >
@@ -2317,8 +2378,15 @@ export function CustomerDashboard({
                         <button
                           type="button"
                           onClick={async () => {
-                            await apiRequest(`/api/auth/sessions/${s.id}`, { method: 'DELETE' });
-                            await loadTabData('security');
+                            try {
+                              await apiRequest(`/api/auth/sessions/${s.id}`, { method: 'DELETE' });
+                              await loadTabData('security');
+                            } catch (err) {
+                              setToast({
+                                type: 'error',
+                                message: err instanceof ApiError ? err.message : 'Unable to revoke session.',
+                              });
+                            }
                           }}
                           className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 text-rose-600 cursor-pointer"
                         >
@@ -2525,6 +2593,48 @@ export function CustomerDashboard({
           </div>
         </div>
       )}
+
+      {/* Mobile Bottom Card Navigation Dock */}
+      <nav
+        aria-label="Customer account mobile navigation"
+        className="no-print lg:hidden fixed inset-x-3 bottom-3 z-50 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-xl shadow-slate-900/10 px-2 py-1.5"
+      >
+        <div className="grid grid-cols-5 gap-1">
+          {[
+            { id: 'overview' as TabId, label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
+            { id: 'wallets' as TabId, label: 'Wallets', icon: <Wallet className="w-4 h-4" /> },
+            { id: 'transfers' as TabId, label: 'Send', icon: <Send className="w-4 h-4" /> },
+            { id: 'transactions' as TabId, label: 'History', icon: <History className="w-4 h-4" /> },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => switchTab(item.id)}
+              className={`flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-colors cursor-pointer ${
+                tab === item.id && !mobileMenu
+                  ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 font-semibold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setMobileMenu((v) => !v)}
+            aria-label="Toggle navigation menu"
+            className={`flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-colors cursor-pointer ${
+              mobileMenu
+                ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {mobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            <span>Menu</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

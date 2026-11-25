@@ -48,6 +48,7 @@ publicRouter.get('/config', async (_req, res, next) => {
     }
 
     res.json({
+      databaseConfigured: isDatabaseConfigured(),
       brand: brandConfig,
       currencies,
       providers: getAllProviderStatuses(),

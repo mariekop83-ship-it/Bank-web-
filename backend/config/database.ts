@@ -17,7 +17,7 @@ export function getPool(): mysql.Pool {
 
   if (!isDatabaseConfigured()) {
     const err = new Error(
-      'External MySQL database is not configured. Set MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE.'
+      'External MySQL database is not configured. Set MYSQL_URL (or MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE).'
     ) as Error & { statusCode?: number; code?: string };
     err.statusCode = 503;
     err.code = 'DB_NOT_CONFIGURED';

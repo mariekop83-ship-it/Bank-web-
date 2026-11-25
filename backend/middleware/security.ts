@@ -87,7 +87,22 @@ export function csrfOriginCheck(req: Request, res: Response, next: NextFunction)
   if (origin && forwardedHost) {
     try {
       const originHost = new URL(origin).host;
-      if (originHost === forwardedHost.split(',')[0].trim()) {
+      const allowedHosts = new Set(
+        [
+          forwardedHost.split(',')[0].trim(),
+          req.headers.host?.trim(),
+        ].filter(Boolean) as string[]
+      );
+      for (const candidateUrl of [env.publicUrl, process.env.APP_URL]) {
+        if (candidateUrl) {
+          try {
+            allowedHosts.add(new URL(candidateUrl).host);
+          } catch {
+            // Ignore invalid URL
+          }
+        }
+      }
+      if (allowedHosts.has(originHost)) {
         next();
         return;
       }

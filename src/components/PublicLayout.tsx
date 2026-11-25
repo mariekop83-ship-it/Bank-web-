@@ -43,9 +43,9 @@ export function PublicLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-      {/* Strictly 3-zone Top Bar Contract */}
+      {/* Top Header */}
       <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
           <button
             type="button"
             onClick={() => go('/')}
@@ -76,13 +76,13 @@ export function PublicLayout({
             </button>
           </nav>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
             <button
               type="button"
               onClick={() => go('/login')}
-              className="hidden sm:inline-flex items-center justify-center px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center justify-center px-3.5 sm:px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              Client Portal
+              Customer Account
             </button>
             <button
               type="button"
@@ -90,7 +90,7 @@ export function PublicLayout({
               aria-label="Toggle navigation menu"
               className="md:hidden p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
             >
-              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
           </div>
         </div>
@@ -104,27 +104,26 @@ export function PublicLayout({
               ['/international-transfers', 'International Transfers'],
               ['/multi-currency', 'Multi-Currency Accounts'],
               ['/cards', 'Cards'],
-              ['/security', 'Security'],
+              ['/security', 'Security Architecture'],
               ['/about', 'About Us'],
               ['/help-center', 'Help Center'],
               ['/faq', 'FAQ'],
               ['/contact', 'Contact Us'],
-              ['/login', 'Client Login'],
               ['/register', 'Open Account'],
             ].map(([href, label]) => (
               <button
                 key={href}
                 type="button"
                 onClick={() => go(href)}
-                className="block w-full text-left px-3 py-2.5 text-sm font-medium rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 cursor-pointer"
+                className={`block w-full text-left px-3 py-2 text-sm font-medium rounded-lg cursor-pointer ${
+                  path === href
+                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 font-semibold'
+                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900'
+                }`}
               >
                 {label}
               </button>
             ))}
-            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <span className="text-xs text-slate-500">Appearance</span>
-              <ThemeToggle dark={dark} onToggle={onToggleTheme} />
-            </div>
           </div>
         )}
       </header>
@@ -167,12 +166,11 @@ export function PublicLayout({
             </div>
 
             <div>
-              <p className="text-xs font-semibold text-slate-900 dark:text-white mb-3">Client Access</p>
+              <p className="text-xs font-semibold text-slate-900 dark:text-white mb-3">Customer Access</p>
               <ul className="space-y-2 text-xs">
-                <li><button type="button" onClick={() => go('/login')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer">Client Login</button></li>
+                <li><button type="button" onClick={() => go('/login')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer">Customer Account</button></li>
                 <li><button type="button" onClick={() => go('/register')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer">Open Account</button></li>
                 <li><button type="button" onClick={() => go('/forgot-password')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer">Password Recovery</button></li>
-                <li><button type="button" onClick={() => go('/admin')} className="hover:text-slate-900 dark:hover:text-white cursor-pointer">Administrator Console</button></li>
               </ul>
             </div>
 
@@ -191,11 +189,12 @@ export function PublicLayout({
             <p>{brand.legalDisclosures.depositNotice}</p>
             <div className="pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-slate-600 dark:text-slate-400">
               <span>© {new Date().getUTCFullYear()} {brand.brandName}. All rights reserved.</span>
-              <span>Client Support: {brand.supportEmail}</span>
+              <span>Customer Support: {brand.supportEmail}</span>
             </div>
           </div>
         </div>
       </footer>
+
     </div>
   );
 }

@@ -102,7 +102,7 @@ export function AdminDashboard({
         const boot = await apiRequest('/api/admin/bootstrap-status', { authScope: 'none' });
         if (boot.databaseConfigured === false) {
           setDbError(
-            'External MySQL database is not configured. Set MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in your environment.'
+            'External MySQL database is not configured. Set MYSQL_URL (or MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE) in your environment.'
           );
           return;
         }
@@ -249,17 +249,18 @@ export function AdminDashboard({
         <div className="max-w-lg w-full space-y-4">
           <AlertBanner type="error" title="External MySQL Required" message={dbError} />
           <p className="text-xs text-slate-600 dark:text-slate-400">
-            Configure <span className="font-mono">MYSQL_HOST</span>, <span className="font-mono">MYSQL_USER</span>,{' '}
-            <span className="font-mono">MYSQL_PASSWORD</span>, and <span className="font-mono">MYSQL_DATABASE</span>, run{' '}
-            <span className="font-mono">npm run migrate</span>, and reload this console.
+            Configure <span className="font-mono">MYSQL_URL</span> (and <span className="font-mono">MYSQL_SSL_REJECT_UNAUTHORIZED=false</span>)
+            in your environment variables, then reload this console—migrations will initialize automatically on startup.
           </p>
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer"
-          >
-            Back to Public Website
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer"
+            >
+              Back to Public Website
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -453,38 +454,103 @@ export function AdminDashboard({
       </aside>
 
       {mobileMenu && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div className="w-72 bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 p-4 flex flex-col">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-              <span className="font-display font-bold text-sm">Admin Console</span>
-              <button type="button" onClick={() => setMobileMenu(false)} className="cursor-pointer"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 z-50 lg:hidden flex flex-col justify-end">
+          <div className="flex-1 bg-slate-950/50 backdrop-blur-[1px]" onClick={() => setMobileMenu(false)} />
+          <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-2xl p-5 pb-24 shadow-2xl max-h-[82vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div>
+                <span className="font-display font-bold text-sm text-slate-900 dark:text-white">Admin Console</span>
+                <p className="text-[11px] text-slate-500 font-mono">{adminUser.roleCode}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileMenu(false)}
+                aria-label="Close admin menu"
+                className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <nav className="flex-1 py-4 space-y-1">
+            <nav className="grid grid-cols-2 gap-2">
               {adminNav.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => { setTab(item.id); setMobileMenu(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg cursor-pointer ${
-                    tab === item.id ? 'bg-blue-700 text-white' : 'text-slate-700 dark:text-slate-300'
+                  className={`flex items-center gap-2.5 px-3 py-2.5 text-xs font-medium rounded-xl border text-left cursor-pointer ${
+                    tab === item.id
+                      ? 'border-blue-600 bg-blue-700 text-white font-semibold'
+                      : 'border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                   }`}
                 >
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span className="truncate">{item.label}</span>
                 </button>
               ))}
             </nav>
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleAdminLogout}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+              <ThemeToggle dark={dark} onToggle={onToggleTheme} />
+            </div>
           </div>
-          <div className="flex-1 bg-black/50" onClick={() => setMobileMenu(false)} />
         </div>
       )}
+
+      {/* Mobile Bottom Card Navigation Dock */}
+      <nav
+        aria-label="Mobile admin bottom navigation"
+        className="lg:hidden fixed inset-x-3 bottom-3 z-50 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-xl shadow-slate-900/10 px-2 py-1.5"
+      >
+        <div className="grid grid-cols-5 gap-1">
+          {[
+            { id: 'overview' as AdminTab, label: 'Overview', icon: <Activity className="w-4 h-4" /> },
+            { id: 'customers' as AdminTab, label: 'Customers', icon: <Users className="w-4 h-4" /> },
+            { id: 'accounts' as AdminTab, label: 'Accounts', icon: <Landmark className="w-4 h-4" /> },
+            { id: 'transactions' as AdminTab, label: 'Ledger', icon: <History className="w-4 h-4" /> },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setMobileMenu(false);
+                setTab(item.id);
+              }}
+              className={`flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-colors cursor-pointer ${
+                tab === item.id && !mobileMenu
+                  ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 font-semibold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setMobileMenu((o) => !o)}
+            aria-label="Toggle admin menu"
+            className={`flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl text-[11px] font-medium transition-colors cursor-pointer ${
+              mobileMenu
+                ? 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 font-semibold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {mobileMenu ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            <span>Menu</span>
+          </button>
+        </div>
+      </nav>
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 px-4 sm:px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setMobileMenu(true)} className="lg:hidden p-2 rounded border border-slate-200 dark:border-slate-800 cursor-pointer">
-              <Menu className="w-4 h-4" />
-            </button>
             <span className="text-sm font-semibold">
               {adminNav.find((i) => i.id === tab)?.label}
             </span>
@@ -495,7 +561,7 @@ export function AdminDashboard({
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-8 max-w-7xl w-full mx-auto space-y-6">
+        <main className="flex-1 p-4 sm:p-8 pb-24 lg:pb-8 max-w-7xl w-full mx-auto space-y-6">
           {toast && <AlertBanner type={toast.type} message={toast.message} onDismiss={() => setToast(null)} />}
 
           {/* OVERVIEW */}
@@ -828,8 +894,15 @@ export function AdminDashboard({
                             <button
                               type="button"
                               onClick={async () => {
-                                const res = await apiRequest(`/api/admin/transactions/${tx.id}/ledger`, { authScope: 'admin' });
-                                setSelectedLedger({ tx, entries: res.entries || [] });
+                                try {
+                                  const res = await apiRequest(`/api/admin/transactions/${tx.id}/ledger`, { authScope: 'admin' });
+                                  setSelectedLedger({ tx, entries: res.entries || [] });
+                                } catch (err) {
+                                  setToast({
+                                    type: 'error',
+                                    message: err instanceof ApiError ? err.message : 'Unable to load ledger entries.',
+                                  });
+                                }
                               }}
                               className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 cursor-pointer"
                             >
