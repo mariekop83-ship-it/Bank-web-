@@ -13,6 +13,7 @@ import {
 } from './ledgerService.js';
 import { providers } from './providers/registry.js';
 import { createNotification } from './notificationService.js';
+import { computeTransactionFee } from './transferService.js';
 
 /**
  * Creates a deposit request in PENDING status.
@@ -52,6 +53,11 @@ export async function createDepositRequest(input: {
     if (wallets.length === 0) throw new LedgerError('Currency wallet not found.', 404);
     const wallet = wallets[0];
 
+    const feeScaled = await computeTransactionFee(conn, 'DEPOSIT', wallet.currency, amountScaled);
+    if (feeScaled >= amountScaled) {
+      throw new LedgerError('Deposit amount must be greater than the applicable fee.', 400);
+    }
+
     const reference = generateReference('DEP');
     const initResult = await providers.paymentGateway.initiateDeposit({
       reference,
@@ -64,7 +70,7 @@ export async function createDepositRequest(input: {
     await conn.query(
       `INSERT INTO deposits
         (uuid, reference, idempotency_key, user_id, currency_account_id, method, amount, fee_amount, currency, status, provider_name, provider_reference)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '0.0000', ?, 'PENDING', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
       [
         crypto.randomUUID(),
         reference,
@@ -73,6 +79,7 @@ export async function createDepositRequest(input: {
         wallet.id,
         input.method,
         formatScaledToDecimal(amountScaled),
+        formatScaledToDecimal(feeScaled),
         wallet.currency,
         initResult.providerName,
         initResult.providerReference || null,
@@ -115,6 +122,13 @@ export async function settleVerifiedDeposit(params: {
     );
     const wallet = wallets[0];
     const clearingId = await getSystemLedgerAccount(conn, `SYS_CLEARING_${deposit.currency}`);
+    const grossScaled = parseDecimalToScaled(String(deposit.amount));
+    const depositFeeScaled = parseDecimalToScaled(String(deposit.fee_amount || '0'));
+    const netScaled = grossScaled - depositFeeScaled;
+    if (netScaled <= 0n) {
+      throw new LedgerError('Deposit fee exceeds the deposit amount.', 400);
+    }
+    const feeRevId = depositFeeScaled > 0n ? await getSystemLedgerAccount(conn, `SYS_FEE_REV_${deposit.currency}`) : null;
 
     const ltx = await postLedgerTransaction(conn, {
       reference: deposit.reference,
@@ -137,10 +151,21 @@ export async function settleVerifiedDeposit(params: {
         {
           ledgerAccountId: Number(wallet.available_ledger_account_id),
           entryType: 'CREDIT',
-          amount: String(deposit.amount),
+          amount: formatScaledToDecimal(netScaled),
           currency: deposit.currency,
           memo: `Customer deposit credit ${deposit.reference}`,
         },
+        ...(feeRevId !== null
+          ? [
+              {
+                ledgerAccountId: feeRevId,
+                entryType: 'CREDIT' as const,
+                amount: formatScaledToDecimal(depositFeeScaled),
+                currency: deposit.currency,
+                memo: `Deposit fee (${deposit.reference})`,
+              },
+            ]
+          : []),
       ],
     });
 
@@ -214,28 +239,32 @@ export async function createWithdrawalRequest(input: {
 
     const reference = generateReference('WDR');
 
+    // The customer's available balance is held for the withdrawal amount plus the fee.
+    const feeScaled = await computeTransactionFee(conn, 'WITHDRAWAL', wallet.currency, amountScaled);
+    const holdScaled = amountScaled + feeScaled;
+
     const holdTx = await postLedgerTransaction(conn, {
       reference: `${reference}-HLD`,
       idempotencyKey: `wdr_hold_${input.idempotencyKey}`,
       transactionType: 'WITHDRAWAL',
       status: 'PENDING',
       currency: wallet.currency,
-      totalAmount: formatScaledToDecimal(amountScaled),
-      feeAmount: '0.0000',
+      totalAmount: formatScaledToDecimal(holdScaled),
+      feeAmount: formatScaledToDecimal(feeScaled),
       description: `Withdrawal hold ${reference}`,
       initiatedByUserId: input.userId,
       entries: [
         {
           ledgerAccountId: Number(wallet.available_ledger_account_id),
           entryType: 'DEBIT',
-          amount: formatScaledToDecimal(amountScaled),
+          amount: formatScaledToDecimal(holdScaled),
           currency: wallet.currency,
           memo: `Hold available balance for withdrawal ${reference}`,
         },
         {
           ledgerAccountId: Number(wallet.pending_ledger_account_id),
           entryType: 'CREDIT',
-          amount: formatScaledToDecimal(amountScaled),
+          amount: formatScaledToDecimal(holdScaled),
           currency: wallet.currency,
           memo: `Pending withdrawal reserve ${reference}`,
         },
@@ -245,7 +274,7 @@ export async function createWithdrawalRequest(input: {
     await conn.query(
       `INSERT INTO withdrawals
         (uuid, reference, idempotency_key, user_id, currency_account_id, method, amount, fee_amount, currency, destination_details_json, status, provider_name, hold_ledger_transaction_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, '0.0000', ?, ?, 'PENDING', ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
       [
         crypto.randomUUID(),
         reference,
@@ -254,6 +283,7 @@ export async function createWithdrawalRequest(input: {
         wallet.id,
         input.method,
         formatScaledToDecimal(amountScaled),
+        formatScaledToDecimal(feeScaled),
         wallet.currency,
         JSON.stringify(input.destinationDetails),
         providers.bankingPartner.getStatus().name,
@@ -294,6 +324,9 @@ export async function approveAndSettleWithdrawal(params: {
     );
     const wallet = wallets[0];
     const clearingId = await getSystemLedgerAccount(conn, `SYS_CLEARING_${wd.currency}`);
+    const wdFeeScaled = parseDecimalToScaled(String(wd.fee_amount || '0'));
+    const wdHoldScaled = parseDecimalToScaled(String(wd.amount)) + wdFeeScaled;
+    const wdFeeRevId = wdFeeScaled > 0n ? await getSystemLedgerAccount(conn, `SYS_FEE_REV_${wd.currency}`) : null;
 
     const settleTx = await postLedgerTransaction(conn, {
       reference: wd.reference,
@@ -309,7 +342,7 @@ export async function approveAndSettleWithdrawal(params: {
         {
           ledgerAccountId: Number(wallet.pending_ledger_account_id),
           entryType: 'DEBIT',
-          amount: String(wd.amount),
+          amount: formatScaledToDecimal(wdHoldScaled),
           currency: wd.currency,
           memo: `Release pending reserve on payout ${wd.reference}`,
         },
@@ -320,6 +353,17 @@ export async function approveAndSettleWithdrawal(params: {
           currency: wd.currency,
           memo: `External payout clearing ${params.providerReference}`,
         },
+        ...(wdFeeRevId !== null
+          ? [
+              {
+                ledgerAccountId: wdFeeRevId,
+                entryType: 'CREDIT' as const,
+                amount: formatScaledToDecimal(wdFeeScaled),
+                currency: wd.currency,
+                memo: `Withdrawal fee (${wd.reference})`,
+              },
+            ]
+          : []),
       ],
     });
 
@@ -372,13 +416,18 @@ export async function rejectWithdrawalAndReleaseHold(params: {
     );
     const wallet = wallets[0];
 
+    // Release the full hold: the withdrawal amount plus the fee that was reserved with it.
+    const rejectHoldAmount = formatScaledToDecimal(
+      parseDecimalToScaled(String(wd.amount)) + parseDecimalToScaled(String(wd.fee_amount || '0'))
+    );
+
     await postLedgerTransaction(conn, {
       reference: `${wd.reference}-REL`,
       idempotencyKey: `wdr_reject_${wd.id}`,
       transactionType: 'REVERSAL',
       status: 'SUCCESSFUL',
       currency: wd.currency,
-      totalAmount: String(wd.amount),
+      totalAmount: rejectHoldAmount,
       feeAmount: '0.0000',
       description: `Release hold for rejected withdrawal ${wd.reference}`,
       initiatedByUserId: Number(wd.user_id),
@@ -387,14 +436,14 @@ export async function rejectWithdrawalAndReleaseHold(params: {
         {
           ledgerAccountId: Number(wallet.pending_ledger_account_id),
           entryType: 'DEBIT',
-          amount: String(wd.amount),
+          amount: rejectHoldAmount,
           currency: wd.currency,
           memo: `Release pending hold (${params.reason})`,
         },
         {
           ledgerAccountId: Number(wallet.available_ledger_account_id),
           entryType: 'CREDIT',
-          amount: String(wd.amount),
+          amount: rejectHoldAmount,
           currency: wd.currency,
           memo: `Return funds to available balance`,
         },

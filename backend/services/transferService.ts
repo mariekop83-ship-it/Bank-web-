@@ -33,7 +33,7 @@ export interface CreateTransferInput {
   transactionPin?: string;
 }
 
-async function computeTransactionFee(
+export async function computeTransactionFee(
   conn: PoolConnection,
   txType: 'INTERNAL_TRANSFER' | 'DOMESTIC_TRANSFER' | 'INTERNATIONAL_TRANSFER' | 'FX_CONVERSION' | 'WITHDRAWAL' | 'DEPOSIT',
   currency: string,
