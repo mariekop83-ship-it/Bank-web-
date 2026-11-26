@@ -60,6 +60,10 @@ function maskAccountNumber(accountNumber?: string | null) {
   return `•••• ${String(accountNumber).slice(-4)}`;
 }
 
+const fieldCls =
+  'w-full h-10 px-3 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600';
+const labelCls = 'block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5';
+
 export function CustomerDashboard({
   dark,
   onToggleTheme,
@@ -1294,227 +1298,255 @@ export function CustomerDashboard({
           {/* TAB 3: TRANSFERS */}
           {tab === 'transfers' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+              <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 sm:p-7">
                 <div>
-                  <h2 className="text-base font-semibold">Send Money</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Choose bank, enter recipient account number to auto-verify account name, set amount, and get an instant receipt.
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Send money</h2>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Verify the recipient, enter the amount and review the details before anything is sent.
                   </p>
                 </div>
 
-                {beneficiaries.length > 0 && (
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Quick Fill from Saved Beneficiary</label>
-                    <select
-                      onChange={(e) => {
-                        const b = beneficiaries.find((x) => String(x.id) === e.target.value);
-                        if (b) {
-                          setTransferForm((f) => ({
-                            ...f,
-                            transferType: b.beneficiary_type,
-                            recipientName: b.beneficiary_name,
-                            recipientAccountNumber: b.account_number,
-                            recipientBank: b.bank_name,
-                            recipientCountry: b.bank_country,
-                            recipientCurrency: b.currency,
-                          }));
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    >
-                      <option value="">Select beneficiary...</option>
-                      {beneficiaries.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.beneficiary_name} ({b.account_number} · {b.currency})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div className="mt-6 space-y-7">
+                  {/* Source */}
+                  <section className="space-y-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</h3>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium mb-1">1. From Wallet</label>
-                    <select
-                      value={transferForm.sourceCurrencyAccountId}
-                      onChange={(e) => {
-                        const nextId = Number(e.target.value);
-                        const w = wallets.find((x: any) => Number(x.id) === nextId);
-                        setTransferForm({
-                          ...transferForm,
-                          sourceCurrencyAccountId: nextId,
-                          recipientCurrency: w?.currency || transferForm.recipientCurrency,
-                        });
-                      }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    >
-                      {wallets.map((w: any) => (
-                        <option key={w.id} value={w.id}>
-                          {w.currency} ({formatMoney(w.available_balance, w.currency, hideBalances)})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">2. Choose Bank</label>
-                    <select
-                      value={transferForm.transferType}
-                      onChange={(e) => {
-                        const nextType = e.target.value as 'INTERNAL' | 'DOMESTIC' | 'INTERNATIONAL';
-                        setAccountLookup(null);
-                        setTransferForm({
-                          ...transferForm,
-                          transferType: nextType,
-                          recipientBank: nextType === 'INTERNAL' ? 'Meridian International Bank' : '',
-                          recipientName: nextType === 'INTERNAL' ? '' : transferForm.recipientName,
-                        });
-                      }}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    >
-                      <option value="INTERNAL">Meridian International Bank (Instant)</option>
-                      <option value="DOMESTIC">External Domestic Bank (Partner Rail)</option>
-                      <option value="INTERNATIONAL">External International SWIFT (Partner Rail)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {transferForm.transferType !== 'INTERNAL' && (
-                  <div>
-                    <label className="block text-xs font-medium mb-1">External Bank Name</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Barclays Bank UK"
-                      value={transferForm.recipientBank}
-                      onChange={(e) => setTransferForm({ ...transferForm, recipientBank: e.target.value })}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs font-medium mb-1">3. Recipient Account Number / IBAN</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Enter 10-digit account number or IBAN"
-                      value={transferForm.recipientAccountNumber}
-                      onChange={(e) =>
-                        setTransferForm({
-                          ...transferForm,
-                          recipientAccountNumber: e.target.value,
-                          ...(transferForm.transferType === 'INTERNAL' ? { recipientName: '' } : {}),
-                        })
-                      }
-                      className="flex-1 px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    />
-                    {transferForm.transferType === 'INTERNAL' && (
-                      <button
-                        type="button"
-                        onClick={() => resolveRecipientAccount(transferForm.recipientAccountNumber)}
-                        disabled={transferForm.recipientAccountNumber.trim().length < 6 || accountLookup?.loading}
-                        className="px-3 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
-                      >
-                        {accountLookup?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Verify'}
-                      </button>
-                    )}
-                  </div>
-                  {accountLookup && !accountLookup.loading && accountLookup.found && (
-                    <div className="mt-2 p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    {beneficiaries.length > 0 && (
                       <div>
-                        <p className="font-semibold">Account Verified: {accountLookup.accountName}</p>
-                        <p className="text-[11px] opacity-90">
-                          {accountLookup.bankName} · Supported: {(accountLookup.supportedCurrencies || []).join(', ')}
-                          {accountLookup.isOwnAccount ? ' (Your own account)' : ''}
-                        </p>
+                        <label className={labelCls}>Saved beneficiary</label>
+                        <select
+                          onChange={(e) => {
+                            const b = beneficiaries.find((x) => String(x.id) === e.target.value);
+                            if (b) {
+                              setTransferForm((f) => ({
+                                ...f,
+                                transferType: b.beneficiary_type,
+                                recipientName: b.beneficiary_name,
+                                recipientAccountNumber: b.account_number,
+                                recipientBank: b.bank_name,
+                                recipientCountry: b.bank_country,
+                                recipientCurrency: b.currency,
+                              }));
+                            }
+                          }}
+                          className={fieldCls}
+                        >
+                          <option value="">Select a beneficiary</option>
+                          {beneficiaries.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.beneficiary_name} ({b.account_number} · {b.currency})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelCls}>Source wallet</label>
+                        <select
+                          value={transferForm.sourceCurrencyAccountId}
+                          onChange={(e) => {
+                            const nextId = Number(e.target.value);
+                            const w = wallets.find((x: any) => Number(x.id) === nextId);
+                            setTransferForm({
+                              ...transferForm,
+                              sourceCurrencyAccountId: nextId,
+                              recipientCurrency: w?.currency || transferForm.recipientCurrency,
+                            });
+                          }}
+                          className={fieldCls}
+                        >
+                          {wallets.map((w: any) => (
+                            <option key={w.id} value={w.id}>
+                              {w.currency} ({formatMoney(w.available_balance, w.currency, hideBalances)})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Destination</label>
+                        <select
+                          value={transferForm.transferType}
+                          onChange={(e) => {
+                            const nextType = e.target.value as 'INTERNAL' | 'DOMESTIC' | 'INTERNATIONAL';
+                            setAccountLookup(null);
+                            setTransferForm({
+                              ...transferForm,
+                              transferType: nextType,
+                              recipientBank: nextType === 'INTERNAL' ? 'Meridian International Bank' : '',
+                              recipientName: nextType === 'INTERNAL' ? '' : transferForm.recipientName,
+                            });
+                          }}
+                          className={fieldCls}
+                        >
+                          <option value="INTERNAL">Meridian International Bank (instant)</option>
+                          <option value="DOMESTIC">External domestic bank (partner rail)</option>
+                          <option value="INTERNATIONAL">External international SWIFT (partner rail)</option>
+                        </select>
                       </div>
                     </div>
-                  )}
-                  {accountLookup && !accountLookup.loading && accountLookup.found === false && (
-                    <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400">{accountLookup.error}</p>
-                  )}
-                </div>
+                  </section>
 
-                <div>
-                  <label className="block text-xs font-medium mb-1">4. Recipient Account Name</label>
-                  <input
-                    type="text"
-                    placeholder={transferForm.transferType === 'INTERNAL' ? 'Auto-filled once account number is verified' : 'Full beneficiary name'}
-                    value={transferForm.recipientName}
-                    onChange={(e) => setTransferForm({ ...transferForm, recipientName: e.target.value })}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                  />
-                </div>
+                  {/* Recipient */}
+                  <section className="space-y-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recipient</h3>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs mb-1">Country (ISO)</label>
-                    <input
-                      type="text"
-                      maxLength={2}
-                      value={transferForm.recipientCountry}
-                      onChange={(e) => setTransferForm({ ...transferForm, recipientCountry: e.target.value.toUpperCase() })}
-                      className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1">Currency</label>
-                    <input
-                      type="text"
-                      maxLength={3}
-                      value={transferForm.recipientCurrency}
-                      onChange={(e) => setTransferForm({ ...transferForm, recipientCurrency: e.target.value.toUpperCase() })}
-                      className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1">5. Amount</label>
-                    <input
-                      type="text"
-                      placeholder="250.00"
-                      value={transferForm.amount}
-                      onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
-                      className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                    />
-                  </div>
-                </div>
+                    {transferForm.transferType !== 'INTERNAL' && (
+                      <div>
+                        <label className={labelCls}>Bank name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Barclays Bank UK"
+                          value={transferForm.recipientBank}
+                          onChange={(e) => setTransferForm({ ...transferForm, recipientBank: e.target.value })}
+                          className={fieldCls}
+                        />
+                      </div>
+                    )}
 
-                <div>
-                  <label className="block text-xs font-medium mb-1">6. Description / Narration</label>
-                  <input
-                    type="text"
-                    placeholder="Payment for dinner, invoice, etc."
-                    value={transferForm.description}
-                    onChange={(e) => setTransferForm({ ...transferForm, description: e.target.value })}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                  />
-                </div>
+                    <div>
+                      <label className={labelCls}>Account number or IBAN</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          placeholder={transferForm.transferType === 'INTERNAL' ? '10-digit account number' : 'Account number or IBAN'}
+                          value={transferForm.recipientAccountNumber}
+                          onChange={(e) =>
+                            setTransferForm({
+                              ...transferForm,
+                              recipientAccountNumber: e.target.value,
+                              ...(transferForm.transferType === 'INTERNAL' ? { recipientName: '' } : {}),
+                            })
+                          }
+                          className={`${fieldCls} flex-1 font-mono`}
+                        />
+                        {transferForm.transferType === 'INTERNAL' && (
+                          <button
+                            type="button"
+                            onClick={() => resolveRecipientAccount(transferForm.recipientAccountNumber)}
+                            disabled={transferForm.recipientAccountNumber.trim().length < 6 || accountLookup?.loading}
+                            className="h-10 shrink-0 px-4 text-sm font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                          >
+                            {accountLookup?.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Verify'}
+                          </button>
+                        )}
+                      </div>
+                      {accountLookup && !accountLookup.loading && accountLookup.found && (
+                        <div className="mt-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-semibold">Verified: {accountLookup.accountName}</p>
+                            <p className="mt-0.5 text-xs opacity-90">
+                              {accountLookup.bankName} · Supported currencies: {(accountLookup.supportedCurrencies || []).join(', ')}
+                              {accountLookup.isOwnAccount ? ' (your own account)' : ''}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {accountLookup && !accountLookup.loading && accountLookup.found === false && (
+                        <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{accountLookup.error}</p>
+                      )}
+                    </div>
 
-                <div>
-                  <label className="block text-xs mb-1">Transaction PIN (if configured)</label>
-                  <input
-                    type="password"
-                    maxLength={6}
-                    placeholder="4-6 digits"
-                    value={transferForm.transactionPin}
-                    onChange={(e) => setTransferForm({ ...transferForm, transactionPin: e.target.value })}
-                    className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                  />
-                </div>
+                    <div>
+                      <label className={labelCls}>Account name</label>
+                      <input
+                        type="text"
+                        placeholder={transferForm.transferType === 'INTERNAL' ? 'Filled in automatically after verification' : 'Full beneficiary name'}
+                        value={transferForm.recipientName}
+                        onChange={(e) => setTransferForm({ ...transferForm, recipientName: e.target.value })}
+                        className={fieldCls}
+                      />
+                    </div>
+                  </section>
 
-                <button
-                  type="button"
-                  onClick={() => setConfirmTransferOpen(true)}
-                  disabled={
-                    !transferForm.amount ||
-                    !transferForm.recipientAccountNumber ||
-                    !transferForm.recipientName ||
-                    !transferForm.description.trim()
-                  }
-                  className="w-full px-4 py-2.5 text-sm font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white cursor-pointer"
-                >
-                  Review & Send Transfer
-                </button>
+                  {/* Payment */}
+                  <section className="space-y-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payment</h3>
+
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className={labelCls}>Country</label>
+                        <input
+                          type="text"
+                          maxLength={2}
+                          placeholder="GB"
+                          value={transferForm.recipientCountry}
+                          onChange={(e) => setTransferForm({ ...transferForm, recipientCountry: e.target.value.toUpperCase() })}
+                          className={`${fieldCls} font-mono`}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Currency</label>
+                        <input
+                          type="text"
+                          maxLength={3}
+                          placeholder="USD"
+                          value={transferForm.recipientCurrency}
+                          onChange={(e) => setTransferForm({ ...transferForm, recipientCurrency: e.target.value.toUpperCase() })}
+                          className={`${fieldCls} font-mono`}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Amount</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={transferForm.amount}
+                          onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
+                          className={`${fieldCls} font-mono`}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={labelCls}>Description</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Invoice 1042"
+                        value={transferForm.description}
+                        onChange={(e) => setTransferForm({ ...transferForm, description: e.target.value })}
+                        className={fieldCls}
+                      />
+                      <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Shown to the recipient on their statement.</p>
+                    </div>
+                  </section>
+
+                  {/* Authorization */}
+                  <section className="space-y-4">
+                    <div>
+                      <label className={labelCls}>Transaction PIN</label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        placeholder="4 to 6 digits"
+                        value={transferForm.transactionPin}
+                        onChange={(e) => setTransferForm({ ...transferForm, transactionPin: e.target.value })}
+                        className={`${fieldCls} font-mono tracking-widest`}
+                      />
+                      <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Required only if you have set a transaction PIN.</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setConfirmTransferOpen(true)}
+                      disabled={
+                        !transferForm.amount ||
+                        !transferForm.recipientAccountNumber ||
+                        !transferForm.recipientName ||
+                        !transferForm.description.trim()
+                      }
+                      className="w-full h-11 px-4 text-sm font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white cursor-pointer"
+                    >
+                      Review transfer
+                    </button>
+                  </section>
+                </div>
               </div>
 
               <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
