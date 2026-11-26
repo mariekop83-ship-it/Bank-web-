@@ -55,6 +55,11 @@ function formatIbanDisplay(iban?: string | null) {
   return String(iban).replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim();
 }
 
+function maskAccountNumber(accountNumber?: string | null) {
+  if (!accountNumber) return '—';
+  return `•••• ${String(accountNumber).slice(-4)}`;
+}
+
 export function CustomerDashboard({
   dark,
   onToggleTheme,
@@ -905,57 +910,82 @@ export function CustomerDashboard({
           {/* TAB 1: OVERVIEW */}
           {tab === 'overview' && (
             <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-                <div>
-                  <h1 className="text-2xl font-display font-bold text-slate-900 dark:text-white">
-                    Welcome, {customer?.first_name} {customer?.last_name}
-                  </h1>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span>
-                      Account <span className="font-mono text-slate-800 dark:text-slate-200">{primaryAccount?.account_number}</span>
-                    </span>
-                    {primaryAccount?.account_number && (
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(primaryAccount.account_number, 'Account number')}
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
-                      >
-                        <Copy className="w-3 h-3" />
-                        <span>Copy</span>
-                      </button>
-                    )}
-                    <span aria-hidden="true">·</span>
-                    <span>
-                      KYC: <StatusText status={customer?.kyc_status} />
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      onClick={() => switchTab('profile')}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
-                    >
-                      <UserCircle2 className="w-3.5 h-3.5" />
-                      <span>View Profile</span>
-                    </button>
-                    {copiedMsg && <span className="text-emerald-600 dark:text-emerald-400 font-medium">{copiedMsg}</span>}
+              {/* Hero: greeting, primary balance, account card and primary actions */}
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-700 via-blue-800 to-slate-900 p-6 sm:p-8 text-white shadow-lg">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs text-blue-100">Welcome back</p>
+                    <h1 className="mt-1 text-2xl font-display font-bold truncate">
+                      {customer?.first_name} {customer?.last_name}
+                    </h1>
+                  </div>
+                  <span className="shrink-0 inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold">
+                    {primaryAccount?.status
+                      ? String(primaryAccount.status).charAt(0) + String(primaryAccount.status).slice(1).toLowerCase()
+                      : 'Active'}
+                  </span>
+                </div>
+
+                <div className="mt-8">
+                  <p className="text-xs text-blue-100">
+                    Available Balance ({wallets[0]?.currency || 'USD'})
+                  </p>
+                  <p className="mt-1 text-3xl sm:text-4xl font-mono font-semibold break-all">
+                    {formatMoney(wallets[0]?.available_balance, wallets[0]?.currency || 'USD', hideBalances)}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+
+                <div className="mt-6 flex items-center justify-between gap-3 rounded-xl bg-white/10 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-blue-100">Account Number</p>
+                    <p className="font-mono text-sm truncate">{maskAccountNumber(primaryAccount?.account_number)}</p>
+                  </div>
+                  {primaryAccount?.account_number && (
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(primaryAccount.account_number, 'Account number')}
+                      className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-white/15 hover:bg-white/25 px-3 py-2 text-xs font-medium cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => switchTab('transfers')}
-                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-blue-700 hover:bg-blue-800 text-white cursor-pointer"
+                    className="flex items-center justify-center gap-2 rounded-xl bg-white text-blue-800 px-4 py-2.5 text-xs font-semibold hover:bg-blue-50 cursor-pointer"
                   >
+                    <Send className="w-3.5 h-3.5" />
                     Send Money
                   </button>
                   <button
                     type="button"
                     onClick={() => setReceiveModalOpen(true)}
-                    className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer"
+                    className="flex items-center justify-center gap-2 rounded-xl border border-white/30 hover:bg-white/10 px-4 py-2.5 text-xs font-semibold cursor-pointer"
                   >
+                    <ArrowDownLeft className="w-3.5 h-3.5" />
                     Receive Money
                   </button>
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                <span>
+                  KYC: <StatusText status={customer?.kyc_status} />
+                </span>
+                <span aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  onClick={() => switchTab('profile')}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
+                >
+                  <UserCircle2 className="w-3.5 h-3.5" />
+                  <span>View Profile</span>
+                </button>
+                {copiedMsg && <span className="text-emerald-600 dark:text-emerald-400 font-medium">{copiedMsg}</span>}
               </div>
 
               {/* Balance & Summary Grid */}
