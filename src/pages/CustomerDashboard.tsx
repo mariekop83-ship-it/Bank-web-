@@ -201,7 +201,8 @@ export function CustomerDashboard({
       const data = await apiRequest('/api/user/dashboard');
       setDashboard(data);
       if (data.wallets?.length > 0) {
-        const firstId = data.wallets[0].id;
+        // MySQL BIGINT ids arrive as strings (bigNumberStrings); the API expects numbers.
+        const firstId = Number(data.wallets[0].id);
         setTransferForm((f) => ({ ...f, sourceCurrencyAccountId: f.sourceCurrencyAccountId || firstId }));
         setDepositForm((f) => ({ ...f, currencyAccountId: f.currencyAccountId || firstId }));
         setWithdrawalForm((f) => ({ ...f, currencyAccountId: f.currencyAccountId || firstId }));
@@ -499,6 +500,7 @@ export function CustomerDashboard({
         method: 'POST',
         body: {
           ...transferForm,
+          sourceCurrencyAccountId: Number(transferForm.sourceCurrencyAccountId),
           idempotencyKey: generateIdempotencyKey('trf'),
           ...(transferForm.transactionPin ? { transactionPin: transferForm.transactionPin } : {}),
         },
